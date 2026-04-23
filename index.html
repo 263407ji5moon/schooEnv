@@ -795,7 +795,7 @@ function renderPins() {
             dotStyle  = `background:${dotColor};border-color:${shadeColor(dotColor, -30)};`;
             badgeHtml = `<div class="pin-value-badge" style="background:${dotColor};color:${textColor};">${avg.toFixed(1)} ${METRICS[activeMetric].unit}</div>`;
         } else if (hasData && isSelected) {
-            badgeHtml = `<div class="pin-value-badge" style="background:var(--school-blue);color:#fff;">${avg.toFixed(1)} ${METRICS[activeMetric].unit}</div>`;
+            badgeHtml = `<div class="pin-value-badge" style="background:var(--school-blue);color:#5a4a1a;">${avg.toFixed(1)} ${METRICS[activeMetric].unit}</div>`;
         }
         pinEl.innerHTML = `
             <div class="pin-dot" style="${dotStyle}"></div>
