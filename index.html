@@ -1,0 +1,1605 @@
+4/22 추가
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+<title>우리학교 환경 지도</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+
+<!--
+    ════════════════════════════════════════════════════════════
+    [개발자 설정 — 사용자에게 보이지 않습니다]
+
+    ① SHEETS_URL      : Google Apps Script 웹앱 URL
+    ② COLUMN_MAP      : 구글 폼 응답 시트 컬럼 매핑
+    ③ FIXED_LOCATIONS : 층별 핀 위치 (x, y = 이미지 대비 %)
+    ④ FLOOR_IMAGES    : 층별 PNG 경로 (null = 빈 배경)
+    ⑤ REFRESH_INTERVAL_MS : 자동 갱신 주기 (기본 30초)
+
+    ════════════════════════════════════════════════════════════
+    [구글 폼 구성 방법]
+
+    1. (자동) 타임스탬프 — 폼 응답 시 구글이 자동 기록
+    2. 층 선택 (드롭다운): 1, 2, 3, 4
+    3. 장소 선택 (드롭다운): FIXED_LOCATIONS의 label 값과 동일하게
+    4. 측정 항목 (드롭다운): lux / db / temp / humi / dust
+       → 한글로 받으려면 METRIC_KR 사전 채우기
+    5. 측정값 (단답형, 숫자)
+    6. 측정자 (단답형, 선택)
+    7. 메모 (장문형, 선택)
+
+    폼 편집 → 응답 → 스프레드시트 연결 → '폼 응답 1' 확인
+
+    Apps Script doGet:
+    function doGet(e) {
+        var sheet = SpreadsheetApp.getActiveSpreadsheet()
+                        .getSheetByName('폼 응답 1');
+        var rows = sheet.getDataRange().getValues();
+        var header = rows[0];
+        var records = rows.slice(1).map(function(row) {
+            var obj = {};
+            header.forEach(function(h,i){ obj[h] = String(row[i]||''); });
+            return obj;
+        });
+        return ContentService
+            .createTextOutput(JSON.stringify({records:records}))
+            .setMimeType(ContentService.MimeType.JSON);
+    }
+    ════════════════════════════════════════════════════════════
+-->
+
+<style>
+:root {
+    --school-blue:      #5782b7;
+    --school-yellow:    #f6df3d;
+    --school-gold:      #ccac33;
+    --school-dark:      #625c48;
+    --school-blue-bg:   #eaf0f8;
+    --school-blue-dark: #3d6199;
+    --school-gold-bg:   #f7f0d8;
+    --school-dark-bg:   #f0ede6;
+    --bg:       #f7f4ee;
+    --surface:  #ffffff;
+    --border:   #ddd8cc;
+    --border2:  #c9c3b4;
+    --text:     #2a2720;
+    --text2:    #625c48;
+    --text3:    #a09880;
+    --green:    #2d7a4a;
+    --red:      #c0392b;
+    --radius:    6px;
+    --radius-lg: 12px;
+    --mono:  'IBM Plex Mono', monospace;
+    --sans:  'Noto Sans KR', sans-serif;
+    --map-w: 680px;
+    --map-h: 520px;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body { font-family: var(--sans); background: var(--bg); color: var(--text); font-size: 14px; display: flex; flex-direction: column; }
+
+/* ── 상단 바 ─────────────────────────────────────────────── */
+.topbar {
+    background: var(--school-dark); color: #fff;
+    display: flex; align-items: center; gap: 10px;
+    padding: 0 16px; height: 50px;
+    position: sticky; top: 0; z-index: 200;
+    border-bottom: 3px solid var(--school-gold); flex-shrink: 0;
+}
+.topbar-logo { font-family: var(--mono); font-weight: 500; font-size: 13px; letter-spacing: 0.06em; white-space: nowrap; }
+.topbar-logo span { color: var(--school-yellow); }
+.topbar-sep { width: 1px; height: 18px; background: rgba(255,255,255,0.2); flex-shrink: 0; }
+.topbar-sub { font-size: 12px; color: rgba(255,255,255,0.5); white-space: nowrap; }
+.live-badge { display: flex; align-items: center; gap: 5px; font-size: 11px; color: rgba(255,255,255,0.7); font-family: var(--mono); white-space: nowrap; }
+.live-dot { width: 7px; height: 7px; border-radius: 50%; background: #5dbb82; animation: pulse 2s ease-in-out infinite; }
+.live-dot.inactive { background: #888; animation: none; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.refresh-btn {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 12px; color: rgba(255,255,255,0.85);
+    background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 99px; padding: 4px 12px; cursor: pointer;
+    transition: all 0.15s; white-space: nowrap; font-family: var(--sans);
+}
+.refresh-btn:hover { background: rgba(255,255,255,0.2); }
+.refresh-btn.loading { opacity: 0.6; cursor: wait; }
+.spin-icon { display: inline-block; }
+.refresh-btn.loading .spin-icon { animation: spin 0.7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── 탭 ──────────────────────────────────────────────────── */
+.tabnav { display: flex; background: var(--surface); border-bottom: 2px solid var(--border); padding: 0 16px; overflow-x: auto; flex-shrink: 0; scrollbar-width: none; }
+.tabnav::-webkit-scrollbar { display: none; }
+.tab-btn { font-family: var(--sans); font-size: 13px; color: var(--text3); background: none; border: none; border-bottom: 3px solid transparent; padding: 11px 16px; cursor: pointer; white-space: nowrap; transition: all 0.12s; margin-bottom: -2px; }
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { color: var(--school-blue); border-bottom-color: var(--school-blue); font-weight: 500; }
+
+/* ── 공통 ────────────────────────────────────────────────── */
+.panel-wrap { flex: 1; overflow-y: auto; }
+.panel { display: none; padding: 16px; }
+.panel.active { display: block; }
+.filter-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.filter-label { font-size: 11px; color: var(--text3); font-weight: 500; white-space: nowrap; }
+.filter-select { font-size: 13px; font-family: var(--sans); padding: 7px 12px; border-radius: var(--radius); border: 1px solid var(--border2); background: var(--surface); color: var(--text); outline: none; cursor: pointer; transition: border-color 0.12s; }
+.filter-select:focus { border-color: var(--school-blue); box-shadow: 0 0 0 3px rgba(87,130,183,0.12); }
+.metric-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+.metric-btn { font-size: 12px; font-family: var(--sans); font-weight: 500; padding: 5px 14px; border-radius: 99px; border: 1.5px solid var(--border2); background: var(--surface); color: var(--text2); cursor: pointer; transition: all 0.12s; white-space: nowrap; }
+.metric-btn:hover { border-color: var(--school-blue); color: var(--school-blue); }
+.metric-btn.active { background: var(--school-blue); border-color: var(--school-blue); color: #fff; }
+
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; margin-bottom: 14px; }
+.card-hd { padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--school-dark-bg); display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.card-hd-title { font-size: 13px; font-weight: 500; color: var(--school-dark); }
+.card-body { padding: 14px; }
+
+/* ── 평면도 탭 ───────────────────────────────────────────── */
+.map-outer { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-start; }
+.map-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; border-top: 3px solid var(--school-blue); flex-shrink: 0; width: var(--map-w); max-width: 100%; }
+.map-card-hd { display: flex; align-items: center; gap: 7px; padding: 9px 13px; border-bottom: 1px solid var(--border); background: var(--school-dark-bg); overflow-x: auto; scrollbar-width: none; }
+.map-card-hd::-webkit-scrollbar { display: none; }
+.floor-btn { font-size: 12px; font-family: var(--mono); padding: 4px 12px; border-radius: var(--radius); border: 1px solid var(--border2); background: var(--surface); color: var(--text2); cursor: pointer; transition: all 0.12s; font-weight: 500; white-space: nowrap; flex-shrink: 0; }
+.floor-btn:hover { border-color: var(--school-blue); color: var(--school-blue); }
+.floor-btn.active { background: var(--school-blue); color: #fff; border-color: var(--school-blue); }
+.map-hint { margin-left: auto; font-size: 11px; color: var(--text3); white-space: nowrap; flex-shrink: 0; }
+
+.map-img-wrap { position: relative; width: var(--map-w); max-width: 100%; height: var(--map-h); overflow: hidden; background: linear-gradient(160deg, var(--school-dark-bg) 0%, var(--school-gold-bg) 100%); line-height: 0; }
+@media (max-width: 720px) { .map-img-wrap { height: auto; aspect-ratio: 680 / 520; } .map-card { width: 100%; } }
+.floor-img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; display: none; }
+.floor-ph { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
+.ph-tag { font-family: var(--mono); font-size: 11px; font-weight: 500; letter-spacing: 0.1em; color: var(--school-blue); background: var(--school-blue-bg); border: 1px solid var(--school-blue); border-radius: 99px; padding: 3px 14px; }
+.ph-txt { font-size: 13px; color: var(--text3); }
+.ph-sub { font-size: 11px; color: var(--text3); opacity: 0.6; }
+
+/* 핀 */
+.pin-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+.pin { position: absolute; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; pointer-events: all; user-select: none; }
+.pin::before { content: ''; position: absolute; top: -10px; left: -10px; right: -10px; bottom: -10px; }
+.pin-dot { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(0,0,0,0.22); background: #ccc; transition: all 0.15s; box-shadow: 0 1px 4px rgba(0,0,0,0.18); flex-shrink: 0; }
+.pin:hover .pin-dot { width: 20px; height: 20px; }
+.pin-label {
+    font-family:     var(--sans);
+    font-size:       10px;
+    font-weight:     500;
+    color:           var(--text);
+    background:      rgba(255,255,255,0.92);
+    border:          1px solid rgba(0,0,0,0.12);
+    border-radius:   4px;
+    padding:         1px 5px;
+    white-space:     nowrap;
+    line-height:     1.4;
+    pointer-events:  none;
+    text-decoration: none;   /* 취소선 방지 */
+}
+.pin.no-data .pin-dot  { background: #ccc; border-color: #999; }
+.pin.selected .pin-dot { background: var(--school-blue); border-color: var(--school-blue-dark); width: 22px; height: 22px; box-shadow: 0 2px 10px rgba(87,130,183,0.5); }
+.pin.selected .pin-label {
+    background:      rgba(255,255,255,0.97);
+    border-color:    var(--school-blue);
+    color:           var(--school-blue-dark);
+    font-weight:     700;
+    text-decoration: none;   /* 취소선 방지 */
+}
+
+/*
+    [수정 취소선] pin-value-badge:
+    브라우저에서 a 태그나 부모 요소 스타일이 취소선을 상속시킬 수 있음.
+    text-decoration: none !important 로 완전 차단.
+*/
+.pin-value-badge {
+    font-family:     var(--mono);
+    font-size:       9px;
+    font-weight:     600;
+    border-radius:   3px;
+    padding:         1px 5px;
+    pointer-events:  none;
+    white-space:     nowrap;
+    text-decoration: none !important;  /* 취소선 완전 차단 */
+    display:         inline-block;     /* inline-block 이어야 text-decoration이 적용됨 */
+}
+
+.map-legend { display: flex; gap: 12px; flex-wrap: wrap; padding: 8px 13px; border-top: 1px solid var(--border); background: var(--school-dark-bg); }
+.legend-item { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text2); }
+.legend-dot  { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid rgba(0,0,0,0.15); }
+
+.map-side { flex: 1; min-width: 260px; max-width: 380px; display: flex; flex-direction: column; gap: 12px; }
+@media (max-width: 760px) { .map-outer { flex-direction: column; } .map-side { max-width: 100%; min-width: 0; width: 100%; } }
+
+/* 핀 통계 */
+.pin-metrics { display: flex; flex-direction: column; gap: 6px; }
+.pm-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 8px; padding: 8px 10px; background: var(--school-dark-bg); border-radius: var(--radius); border-left: 3px solid transparent; transition: border-color 0.1s; }
+.pm-row.active { border-left-color: var(--school-blue); background: var(--school-blue-bg); }
+.pm-label { font-size: 12px; color: var(--text2); }
+.pm-val   { font-family: var(--mono); font-size: 15px; font-weight: 500; }
+.pm-unit  { font-size: 10px; color: var(--text3); font-family: var(--mono); }
+.pm-count { font-size: 10px; color: var(--text3); text-align: right; margin-top: 6px; }
+.pm-empty { font-size: 12px; color: var(--text3); text-align: center; padding: 16px 0; }
+
+/* 비교 탭 */
+.compare-selects { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.compare-select-wrap { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 140px; }
+.compare-select-label { font-size: 11px; color: var(--text3); font-weight: 500; }
+.compare-nums { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: center; }
+.cmp-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 14px; display: flex; flex-direction: column; gap: 10px; border-top: 3px solid var(--school-blue); }
+.cmp-card.right { border-top-color: var(--school-gold); }
+.cmp-loc-name { font-size: 13px; font-weight: 500; color: var(--school-dark); }
+.cmp-metric-row { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
+.cmp-metric-label { font-size: 11px; color: var(--text3); }
+.cmp-val  { font-family: var(--mono); font-size: 18px; font-weight: 500; }
+.cmp-unit { font-size: 10px; color: var(--text3); font-family: var(--mono); }
+.cmp-vs   { font-family: var(--mono); font-size: 18px; color: var(--text3); text-align: center; font-weight: 500; }
+.cmp-diff { font-size: 11px; font-family: var(--mono); font-weight: 500; padding: 2px 6px; border-radius: var(--radius); }
+.cmp-diff.higher { background: #fdecea; color: var(--red); }
+.cmp-diff.lower  { background: var(--school-blue-bg); color: var(--school-blue-dark); }
+.cmp-diff.same   { background: var(--school-dark-bg); color: var(--text3); }
+
+/* 순위 막대 */
+.rank-bar-wrap { display: flex; flex-direction: column; gap: 7px; }
+.rank-row  { display: flex; align-items: center; gap: 8px; }
+.rank-num  { font-family: var(--mono); font-size: 11px; color: var(--text3); width: 16px; text-align: right; flex-shrink: 0; }
+.rank-name { font-size: 12px; color: var(--text2); width: 90px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
+.rank-bar-bg   { flex: 1; background: var(--school-dark-bg); border-radius: 99px; height: 10px; overflow: hidden; }
+.rank-bar-fill { height: 100%; border-radius: 99px; transition: width 0.4s ease; }
+.rank-val  { font-family: var(--mono); font-size: 11px; color: var(--text2); width: 56px; text-align: right; flex-shrink: 0; }
+
+/* 차트 */
+.chart-wrap { position: relative; height: 220px; }
+@media (max-width: 500px) { .chart-wrap { height: 180px; } }
+.chart-nodata { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); font-size: 12px; color: var(--text3); text-align: center; }
+
+/* 서브탭 */
+.subtab-bar { display: flex; gap: 4px; flex-wrap: wrap; }
+.subtab-btn { font-size: 11px; font-family: var(--sans); padding: 4px 11px; border-radius: 99px; border: 1px solid var(--border2); background: var(--surface); color: var(--text2); cursor: pointer; transition: all 0.12s; white-space: nowrap; }
+.subtab-btn:hover  { border-color: var(--school-blue); color: var(--school-blue); }
+.subtab-btn.active { background: var(--school-blue); border-color: var(--school-blue); color: #fff; }
+
+/* 테이블 */
+.table-wrap { overflow-x: auto; }
+.data-table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 420px; }
+.data-table th { background: var(--school-dark-bg); padding: 8px 11px; text-align: left; font-size: 11px; font-weight: 600; color: var(--school-dark); border-bottom: 1px solid var(--border); white-space: nowrap; }
+.data-table td { padding: 7px 11px; border-bottom: 1px solid var(--border); color: var(--text); white-space: nowrap; }
+.data-table tr:last-child td { border-bottom: none; }
+.data-table tr:hover td { background: var(--school-blue-bg); }
+.mono-td    { font-family: var(--mono); font-size: 11px; color: var(--text2); }
+.floor-pill { display: inline-block; font-size: 10px; font-family: var(--mono); background: var(--school-blue-bg); color: var(--school-blue-dark); border-radius: 99px; padding: 2px 7px; }
+.empty-msg  { text-align: center; padding: 36px; color: var(--text3); font-size: 12px; }
+
+/* KPI */
+.kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; margin-bottom: 12px; }
+@media (max-width: 540px) { .kpi-row { grid-template-columns: repeat(2, 1fr); } }
+.kpi-card  { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 11px 13px; border-top: 3px solid var(--school-gold); }
+.kpi-label { font-size: 10px; color: var(--text2); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
+.kpi-val   { font-size: 22px; font-family: var(--mono); font-weight: 500; line-height: 1; }
+.kpi-unit  { font-size: 10px; color: var(--text3); margin-top: 1px; font-family: var(--mono); }
+
+.dl-btn { font-size: 11px; padding: 5px 11px; border-radius: var(--radius); border: 1px solid var(--border2); background: var(--surface); color: var(--text2); cursor: pointer; font-family: var(--sans); transition: all 0.12s; white-space: nowrap; }
+.dl-btn:hover { background: var(--school-blue-bg); color: var(--school-blue-dark); border-color: var(--school-blue); }
+
+/* 사용 안내 탭 */
+.guide-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 560px) { .guide-grid { grid-template-columns: 1fr; } }
+.guide-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
+.guide-hd { padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 500; background: var(--school-dark-bg); color: var(--school-dark); }
+.guide-body { padding: 13px 14px; }
+
+.g-steps-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; }
+@media (max-width: 560px) { .g-steps-grid { grid-template-columns: 1fr; } }
+.g-step { display: flex; gap: 10px; align-items: flex-start; padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
+.g-steps-grid .g-step:nth-child(3),
+.g-steps-grid .g-step:nth-child(4) { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+@media (max-width: 560px) {
+    .g-steps-grid .g-step:nth-child(3) { border-bottom: 1px solid var(--border); margin-bottom: 12px; padding-bottom: 12px; }
+    .g-steps-grid .g-step:nth-child(4) { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+}
+.g-num { width: 22px; height: 22px; border-radius: 50%; background: var(--school-blue); color: #fff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px; }
+.g-text { font-size: 12px; color: var(--text2); line-height: 1.7; }
+.g-text strong { color: var(--text); display: block; margin-bottom: 1px; }
+.g-p { font-size: 12px; color: var(--text2); line-height: 1.75; margin-bottom: 8px; }
+.g-p:last-child { margin-bottom: 0; }
+.g-p strong { color: var(--text); }
+
+/* 토스트 */
+.toast-box { position: fixed; bottom: 18px; right: 14px; display: flex; flex-direction: column; gap: 6px; z-index: 9999; }
+.toast { background: var(--school-dark); color: #fff; font-size: 12px; padding: 8px 14px; border-radius: var(--radius); opacity: 0; transform: translateY(6px); transition: all 0.2s; pointer-events: none; font-family: var(--sans); border-left: 3px solid var(--school-gold); max-width: 260px; }
+.toast.show { opacity: 1; transform: translateY(0); }
+.toast.ok  { background: #1e5c38; border-left-color: #5dbb82; }
+.toast.err { background: #8c2020; border-left-color: #e07070; }
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--school-gold); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- 상단 바 -->
+<div class="topbar">
+    <div class="topbar-logo">NAEGOK<span>·</span>MIDDLE</div>
+    <div class="topbar-sep"></div>
+    <div class="topbar-sub">우리 학교 환경 지도</div>
+    <div class="topbar-right">
+        <div class="live-badge">
+            <div class="live-dot" id="live-dot"></div>
+            <span id="live-txt">—</span>
+        </div>
+        <button class="refresh-btn" id="refresh-btn" onclick="fetchData(true)">
+            <span class="spin-icon">⟳</span> 새로고침
+        </button>
+    </div>
+</div>
+
+<!-- 탭 -->
+<div class="tabnav">
+    <button class="tab-btn active" onclick="switchTab('map')">🗺 평면도</button>
+    <button class="tab-btn"        onclick="switchTab('compare')">⚖️ 장소 비교</button>
+    <button class="tab-btn"        onclick="switchTab('data')">📊 데이터</button>
+    <button class="tab-btn"        onclick="switchTab('guide')">📖 안내</button>
+</div>
+
+<div class="panel-wrap">
+
+    <!-- 평면도 탭 -->
+    <div class="panel active" id="panel-map">
+        <div class="filter-bar">
+            <span class="filter-label">측정 항목</span>
+            <div class="metric-btns" id="metric-btns-map"></div>
+        </div>
+        <div class="map-outer">
+            <div>
+                <div class="map-card">
+                    <div class="map-card-hd">
+                        <button class="floor-btn active" onclick="setFloor(1)">1층</button>
+                        <button class="floor-btn"        onclick="setFloor(2)">2층</button>
+                        <button class="floor-btn"        onclick="setFloor(3)">3층</button>
+                        <button class="floor-btn"        onclick="setFloor(4)">4층</button>
+                        <div class="map-hint">핀 클릭 → 통계</div>
+                    </div>
+                    <div class="map-img-wrap" id="map-img-wrap">
+                        <img class="floor-img" id="floor-img" src="" alt="평면도" />
+                        <div class="floor-ph" id="floor-ph">
+                            <div class="ph-tag" id="ph-tag">1층</div>
+                            <div class="ph-txt">평면도를 준비 중입니다</div>
+                            <div class="ph-sub">핀을 클릭해 통계를 확인하세요</div>
+                        </div>
+                        <div class="pin-canvas" id="pin-canvas"></div>
+                    </div>
+                    <div class="map-legend">
+                        <div class="legend-item"><div class="legend-dot" style="background:#ccc;border-color:#999;"></div>미측정</div>
+                        <div class="legend-item"><div class="legend-dot" style="background:var(--school-gold);border-color:var(--school-dark);"></div>기록 있음 (연→진: 낮음→높음)</div>
+                        <div class="legend-item"><div class="legend-dot" style="background:var(--school-blue);border-color:var(--school-blue-dark);"></div>선택됨</div>
+                    </div>
+                </div>
+                <div class="card" style="margin-top:12px;">
+                    <div class="card-hd">
+                        <div class="card-hd-title" id="rank-title">이 층 장소별 순위</div>
+                        <div class="subtab-bar">
+                            <button class="subtab-btn active" id="rank-scope-floor" onclick="setRankScope('floor')">이 층</button>
+                            <button class="subtab-btn"        id="rank-scope-all"   onclick="setRankScope('all')">전체 층</button>
+                        </div>
+                    </div>
+                    <div class="card-body"><div class="rank-bar-wrap" id="rank-bars"><div class="empty-msg">데이터를 불러오면 순위가 표시됩니다</div></div></div>
+                </div>
+            </div>
+            <div class="map-side">
+                <div class="card" style="border-top:3px solid var(--school-gold);">
+                    <div class="card-hd"><div class="card-hd-title" id="pin-card-title">장소를 선택하세요</div></div>
+                    <div class="card-body" id="pin-stat-body"><div class="pm-empty">평면도에서 핀을 클릭하면<br>이 장소의 측정값을 볼 수 있습니다</div></div>
+                </div>
+                <div class="card" id="pin-chart-card" style="display:none;border-top:3px solid var(--school-blue);">
+                    <div class="card-hd">
+                        <div class="card-hd-title" id="pin-chart-title">시간별 변화</div>
+                        <div class="subtab-bar">
+                            <button class="subtab-btn active" onclick="setPinChartMode('time')">시간 흐름</button>
+                            <button class="subtab-btn"        onclick="setPinChartMode('day')">날별</button>
+                            <button class="subtab-btn"        onclick="setPinChartMode('hour')">시간대별</button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-wrap">
+                            <canvas id="pin-chart"></canvas>
+                            <div class="chart-nodata" id="pin-nodata" style="display:none;">이 항목의 측정 기록이 없습니다</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 장소 비교 탭 -->
+    <div class="panel" id="panel-compare">
+        <div class="filter-bar" style="margin-bottom:10px;">
+            <span class="filter-label">측정 항목</span>
+            <div class="metric-btns" id="metric-btns-cmp"></div>
+        </div>
+        <div class="card">
+            <div class="card-hd"><div class="card-hd-title" id="all-rank-title">전체 장소 순위</div></div>
+            <div class="card-body"><div class="rank-bar-wrap" id="all-rank-bars"><div class="empty-msg">데이터를 불러오면 순위가 표시됩니다</div></div></div>
+        </div>
+        <div class="card">
+            <div class="card-hd"><div class="card-hd-title">두 장소 비교</div></div>
+            <div class="card-body">
+                <div class="compare-selects" style="margin-bottom:14px;">
+                    <div class="compare-select-wrap">
+                        <div class="compare-select-label">🔵 장소 A</div>
+                        <select class="filter-select" id="cmp-loc-a" onchange="renderCompare()" style="width:100%;"></select>
+                    </div>
+                    <div style="font-size:18px;color:var(--text3);padding-top:20px;">vs</div>
+                    <div class="compare-select-wrap">
+                        <div class="compare-select-label">🟡 장소 B</div>
+                        <select class="filter-select" id="cmp-loc-b" onchange="renderCompare()" style="width:100%;"></select>
+                    </div>
+                </div>
+                <div class="compare-nums" id="compare-nums">
+                    <div class="empty-msg" style="grid-column:1/-1;">장소를 선택하면 비교 결과가 표시됩니다</div>
+                </div>
+            </div>
+        </div>
+        <div class="card" style="border-top:3px solid var(--school-blue);">
+            <div class="card-hd">
+                <div class="card-hd-title" id="cmp-chart-title">두 장소 시간별 비교</div>
+                <div class="subtab-bar">
+                    <button class="subtab-btn active" onclick="setCmpChartMode('time')">시간 흐름</button>
+                    <button class="subtab-btn"        onclick="setCmpChartMode('day')">날별</button>
+                    <button class="subtab-btn"        onclick="setCmpChartMode('hour')">시간대별</button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="chart-wrap" style="height:280px;">
+                    <canvas id="cmp-chart"></canvas>
+                    <div class="chart-nodata" id="cmp-nodata" style="display:none;">측정 기록이 없습니다</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 데이터 탭 -->
+    <div class="panel" id="panel-data">
+        <div class="filter-bar">
+            <span class="filter-label">장소</span>
+            <select class="filter-select" id="df-loc" onchange="renderDataTab()"><option value="">전체</option></select>
+            <span class="filter-label" style="margin-left:4px;">항목</span>
+            <select class="filter-select" id="df-metric" onchange="renderDataTab()"><option value="">전체</option></select>
+        </div>
+        <div class="kpi-row" id="kpi-row"></div>
+        <div class="card" style="border-top:3px solid var(--school-blue); margin-bottom:12px;">
+            <div class="card-hd">
+                <div class="card-hd-title" id="data-chart-title">시간별 측정값</div>
+                <div class="subtab-bar">
+                    <button class="subtab-btn active" onclick="setDataChartMode('time')">시간 흐름</button>
+                    <button class="subtab-btn"        onclick="setDataChartMode('day')">날별 평균</button>
+                    <button class="subtab-btn"        onclick="setDataChartMode('hour')">시간대별 평균</button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="chart-wrap" style="height:280px;">
+                    <canvas id="data-chart"></canvas>
+                    <div class="chart-nodata" id="data-nodata" style="display:none;">선택한 조건의 데이터가 없습니다</div>
+                </div>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-hd">
+                <div class="card-hd-title">전체 기록</div>
+                <button class="dl-btn" onclick="exportCSV()">⬇ CSV</button>
+            </div>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead><tr><th>일시</th><th>층</th><th>장소</th><th>측정 항목</th><th>측정값</th><th>단위</th><th>측정자</th><th>메모</th></tr></thead>
+                    <tbody id="data-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- 안내 탭 -->
+    <div class="panel" id="panel-guide">
+        <div class="guide-grid">
+            <div class="guide-card" style="grid-column:1/-1;">
+                <div class="guide-hd">📋 사용 방법</div>
+                <div class="guide-body">
+                    <div class="g-steps-grid">
+                        <div class="g-step"><div class="g-num">1</div><div class="g-text"><strong>항목 선택</strong>버튼으로 보고 싶은 측정 항목을 하나 고릅니다 (조도, 소음, 온도, 습도, 미세먼지).</div></div>
+                        <div class="g-step"><div class="g-num">2</div><div class="g-text"><strong>핀 클릭</strong>평면도에서 금색 핀을 클릭하면 해당 장소의 평균값과 시간별 그래프를 볼 수 있습니다.</div></div>
+                        <div class="g-step"><div class="g-num">3</div><div class="g-text"><strong>장소 비교</strong><em>장소 비교</em> 탭에서 두 장소의 수치를 나란히 비교하고, 전체 순위를 막대 그래프로 확인할 수 있습니다.</div></div>
+                        <div class="g-step"><div class="g-num">4</div><div class="g-text"><strong>자동 갱신</strong>새 측정 데이터가 입력되면 30초마다 자동으로 반영됩니다. 즉시 보려면 새로고침 버튼을 누르세요.</div></div>
+                    </div>
+                </div>
+            </div>
+            <div class="guide-card">
+                <div class="guide-hd">📍 핀 색상 안내</div>
+                <div class="guide-body">
+                    <p class="g-p"><strong style="color:#999;">회색 핀</strong> — 선택한 항목의 측정 기록이 없는 장소입니다.</p>
+                    <p class="g-p"><strong style="color:var(--school-gold);">금색 핀 (연→진)</strong> — 값이 높을수록 진해집니다. 클릭하면 통계를 볼 수 있습니다.</p>
+                    <p class="g-p"><strong style="color:var(--school-blue);">파란색 핀</strong> — 현재 선택된 장소입니다.</p>
+                </div>
+            </div>
+            <div class="guide-card">
+                <div class="guide-hd">📈 그래프 보는 법</div>
+                <div class="guide-body">
+                    <p class="g-p"><strong>시간 흐름</strong> — 측정 날짜·시각 순서대로 값의 변화를 보여줍니다.</p>
+                    <p class="g-p"><strong>날별</strong> — 날짜별 평균값을 막대로 비교합니다.</p>
+                    <p class="g-p"><strong>시간대별</strong> — 오전/오후 시간대별 평균값을 비교합니다.</p>
+                </div>
+            </div>
+            <div class="guide-card">
+                <div class="guide-hd">⚠️ 알아두세요</div>
+                <div class="guide-body">
+                    <p class="g-p">데이터는 <strong>30초마다 자동으로 갱신</strong>됩니다. 상단의 초록 점이 깜박이는 동안은 정상 연결 상태입니다.</p>
+                    <p class="g-p">데이터를 불러오지 못하면 빨간 알림이 표시됩니다. 인터넷 연결을 확인하거나 선생님께 문의해 주세요.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<div class="toast-box" id="toast-box"></div>
+
+
+<script>
+/* ============================================================
+    [개발자] ① Sheets 웹앱 URL
+============================================================ */
+const SHEETS_URL = 'https://script.google.com/macros/s/여기에_URL_붙여넣기/exec';
+
+/* ============================================================
+    [개발자] ② 구글 폼 → 시트 컬럼 매핑
+============================================================ */
+const COLUMN_MAP = {
+    time:   '타임스탬프',
+    floor:  '층',
+    loc:    '장소',
+    pinId:  '핀ID',
+    metric: '측정항목',
+    value:  '측정값',
+    user:   '측정자',
+    memo:   '메모',
+};
+
+const METRIC_KR = {
+    '조도': 'lux', '소음': 'db', '온도': 'temp', '습도': 'humi', '미세먼지': 'dust',
+};
+
+/* ============================================================
+    [개발자] ③ 층별 PNG 파일 경로
+============================================================ */
+const FLOOR_IMAGES = {
+    1: '.\\1층_내곡평면도.png',
+    2: '.\\2층_내곡평면도.png',
+    3: '.\\3층_내곡평면도.png',
+    4: '.\\4층_내곡평면도.png',
+};
+
+/* ============================================================
+    [개발자] ④ 층별 핀 위치 (x, y = 이미지 대비 %)
+============================================================ */
+const FIXED_LOCATIONS = {
+    1: [
+        { id: 'f1-office',  label: '교무실',    x: 37,  y: 14 },
+        { id: 'f1-hall',    label: '현관 로비', x: 55,  y: 14 },
+        { id: 'f1-nurse',   label: '보건실',    x: 37,  y: 40 },
+        { id: 'f1-canteen', label: '급식실',    x: 28,  y: 62 },
+        { id: 'f1-storage', label: '창고',      x: 80,  y: 62 },
+    ],
+    2: [
+        { id: 'f2-science', label: '과학실 앞', x: 78,  y: 80 },
+        { id: 'f2-art',     label: '미술실',    x: 52,  y: 68 },
+        { id: 'f2-cor',     label: '2층 복도',  x: 38,  y: 45 },
+    ],
+    3: [
+        { id: 'f3-comp', label: '컴퓨터실', x: 42,  y: 68 },
+        { id: 'f3-lib',  label: '벼리',     x: 62,  y: 68 },
+        { id: 'f3-cor',  label: '3층 복도', x: 38,  y: 45 },
+    ],
+    4: [
+        { id: 'f4-lib',     label: '벼리(도서관)', x: 22,  y: 35 },
+        { id: 'f4-conf',    label: '회의실',       x: 55,  y: 18 },
+        { id: 'f4-prin',    label: '교장실',       x: 70,  y: 18 },
+        { id: 'f4-terrace', label: '옥상 테라스',  x: 22,  y: 75 },
+    ],
+};
+
+/* ============================================================
+    [개발자] ⑤ 자동 갱신 주기
+============================================================ */
+const REFRESH_INTERVAL_MS = 30000;
+
+/* ============================================================
+    측정 항목 정의
+============================================================ */
+const METRICS = {
+    lux:  { label: '조도',    unit: 'lux',  color: '#5782b7' },
+    db:   { label: '소음',    unit: 'dB',   color: '#c0392b' },
+    temp: { label: '온도',    unit: '°C',   color: '#2d7a4a' },
+    humi: { label: '습도',    unit: '%',    color: '#ccac33' },
+    dust: { label: '미세먼지', unit: '㎍/㎥', color: '#9a6b2a' },
+};
+
+/* ============================================================
+    앱 상태
+============================================================ */
+let allRecords    = [];
+let currentFloor  = 1;
+let selectedPinId = null;
+let selectedPinLoc = null;
+let activeMetric  = 'lux';
+let pollingTimer  = null;
+let chartPinInst  = null;
+let chartCmpInst  = null;
+let chartDataInst = null;
+let pinChartMode  = 'time';
+let cmpChartMode  = 'time';
+let dataChartMode = 'time';
+let rankScope     = 'floor';
+
+/* ============================================================
+    초기화
+============================================================ */
+(function init() {
+    buildMetricButtons();
+    renderFloorMap();
+    fetchData(false);
+    startPolling();
+})();
+
+/* ============================================================
+    측정 항목 버튼 빌드
+============================================================ */
+function buildMetricButtons() {
+    ['metric-btns-map', 'metric-btns-cmp'].forEach(id => {
+        document.getElementById(id).innerHTML = Object.entries(METRICS).map(([key, m]) =>
+            `<button class="metric-btn${key === activeMetric ? ' active' : ''}"
+                     onclick="setMetric('${key}')">${m.label}</button>`
+        ).join('');
+    });
+}
+
+function setMetric(key) {
+    activeMetric = key;
+    document.querySelectorAll('.metric-btn').forEach(b => {
+        b.classList.toggle('active', b.textContent === METRICS[key].label);
+    });
+    const df = document.getElementById('df-metric');
+    if (df) df.value = key;
+    renderAll();
+}
+
+/* ============================================================
+    탭 전환
+============================================================ */
+function switchTab(name) {
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('panel-' + name).classList.add('active');
+    const map = { map: 0, compare: 1, data: 2, guide: 3 };
+    document.querySelectorAll('.tab-btn')[map[name]].classList.add('active');
+    renderAll();
+}
+
+/* ============================================================
+    그래프 모드 전환
+============================================================ */
+function setPinChartMode(mode) {
+    pinChartMode = mode;
+    _setSubtabActive('pin-chart-card', mode);
+    if (selectedPinId) { const loc = findLoc(selectedPinId); if (loc) _redrawPinChart(loc); }
+}
+function setCmpChartMode(mode) {
+    cmpChartMode = mode;
+    _setSubtabActive('panel-compare', mode);
+    renderCompare();
+}
+function setDataChartMode(mode) {
+    dataChartMode = mode;
+    _setSubtabActive('panel-data', mode);
+    renderDataTab();
+}
+function _setSubtabActive(containerId, mode) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    container.querySelectorAll('.subtab-btn').forEach(b => {
+        b.classList.toggle('active',
+            (b.textContent.includes('흐름')  && mode === 'time') ||
+            (b.textContent.includes('날별')  && mode === 'day')  ||
+            (b.textContent.includes('시간대') && mode === 'hour')
+        );
+    });
+}
+
+/* ============================================================
+    순위 범위 전환
+============================================================ */
+function setRankScope(scope) {
+    rankScope = scope;
+    document.getElementById('rank-scope-floor').classList.toggle('active', scope === 'floor');
+    document.getElementById('rank-scope-all').classList.toggle('active', scope === 'all');
+    renderRankBars();
+}
+
+/* ============================================================
+    층 선택
+============================================================ */
+function setFloor(n) {
+    currentFloor   = n;
+    selectedPinId  = null;
+    selectedPinLoc = null;
+    document.querySelectorAll('.floor-btn').forEach((b, i) => b.classList.toggle('active', i + 1 === n));
+    renderFloorMap();
+    clearPinSide();
+    renderRankBars();
+}
+
+/* ============================================================
+    전체 렌더
+============================================================ */
+function renderAll() {
+    renderPins();
+    renderRankBars();
+    renderAllRank();
+    renderCompare();
+    renderDataTab();
+    if (selectedPinId) { const loc = findLoc(selectedPinId); if (loc) showPinStats(loc); }
+}
+
+/* ============================================================
+    평면도 렌더링
+============================================================ */
+function renderFloorMap() {
+    const imgEl  = document.getElementById('floor-img');
+    const ph     = document.getElementById('floor-ph');
+    const phTag  = document.getElementById('ph-tag');
+    const imgSrc = FLOOR_IMAGES[currentFloor];
+    const names  = { 1: '1층', 2: '2층', 3: '3층', 4: '4층' };
+    phTag.textContent = names[currentFloor] || `${currentFloor}층`;
+    if (imgSrc) {
+        imgEl.src           = imgSrc;
+        imgEl.style.display = 'block';
+        ph.style.display    = 'none';
+        imgEl.onload = renderPins;
+        if (imgEl.complete) renderPins();
+    } else {
+        imgEl.style.display = 'none';
+        ph.style.display    = 'flex';
+        renderPins();
+    }
+}
+
+/* ============================================================
+    핀 렌더링
+============================================================ */
+function renderPins() {
+    const canvas    = document.getElementById('pin-canvas');
+    const locations = FIXED_LOCATIONS[currentFloor] || [];
+    const locAvg    = calcLocAvg(currentFloor, activeMetric);
+    const vals   = locations.map(l => locAvg[l.id] ?? locAvg[l.label]).filter(v => v !== undefined);
+    const minVal = vals.length ? Math.min(...vals) : 0;
+    const maxVal = vals.length ? Math.max(...vals) : 1;
+    const range  = maxVal - minVal || 1;
+    canvas.innerHTML = '';
+    locations.forEach(loc => {
+        const isSelected = loc.id === selectedPinId;
+        const avg        = locAvg[loc.id] ?? locAvg[loc.label];
+        const hasData    = avg !== undefined;
+        const pinEl = document.createElement('div');
+        pinEl.className  = 'pin ' + (isSelected ? 'selected' : hasData ? 'has-data' : 'no-data');
+        pinEl.style.left   = `${loc.x}%`;
+        pinEl.style.top    = `${loc.y}%`;
+        pinEl.style.zIndex = isSelected ? '10' : '5';
+        let dotStyle = '';
+        let badgeHtml = '';
+        if (hasData && !isSelected) {
+            const t        = (avg - minVal) / range;
+            const dotColor = interpolateGold(t);
+            const textColor = '#5a4a1a';
+            dotStyle  = `background:${dotColor};border-color:${shadeColor(dotColor, -30)};`;
+            badgeHtml = `<div class="pin-value-badge" style="background:${dotColor};color:${textColor};">${avg.toFixed(1)} ${METRICS[activeMetric].unit}</div>`;
+        } else if (hasData && isSelected) {
+            badgeHtml = `<div class="pin-value-badge" style="background:var(--school-blue);color:#fff;">${avg.toFixed(1)} ${METRICS[activeMetric].unit}</div>`;
+        }
+        pinEl.innerHTML = `
+            <div class="pin-dot" style="${dotStyle}"></div>
+            <div class="pin-label">${loc.label}</div>
+            ${badgeHtml}`;
+        pinEl.addEventListener('click', e => {
+            e.stopPropagation();
+            selectedPinId  = loc.id;
+            selectedPinLoc = loc.label;
+            renderPins();
+            showPinStats(loc);
+            renderRankBars();
+        });
+        canvas.appendChild(pinEl);
+    });
+}
+
+function interpolateGold(t) {
+    const r = Math.round(224 + (138 - 224) * t);
+    const g = Math.round(201 + (104 - 201) * t);
+    const b = Math.round(106 + (  0 - 106) * t);
+    return `rgb(${r},${g},${b})`;
+}
+function shadeColor(hex, pct) {
+    const m = hex.match(/rgb\((\d+),(\d+),(\d+)\)/);
+    if (m) {
+        const clamp = v => Math.max(0, Math.min(255, v + pct));
+        return `rgb(${clamp(+m[1])},${clamp(+m[2])},${clamp(+m[3])})`;
+    }
+    return hex;
+}
+
+/* ============================================================
+    장소별 평균 계산
+============================================================ */
+function calcLocAvg(floor, metric) {
+    const result = {};
+    allRecords
+        .filter(r => (!floor || Number(r.floor) === floor) && r.metric === metric)
+        .forEach(r => {
+            const v = parseFloat(r.value);
+            if (isNaN(v)) return;
+            const key = r.pinId || r.loc;
+            if (!result[key]) result[key] = { sum: 0, cnt: 0 };
+            result[key].sum += v;
+            result[key].cnt++;
+            if (r.pinId && r.loc && !result[r.loc]) result[r.loc] = result[r.pinId];
+        });
+    const avg = {};
+    Object.entries(result).forEach(([k, v]) => { avg[k] = v.sum / v.cnt; });
+    return avg;
+}
+
+/* ============================================================
+    핀 사이드 통계
+============================================================ */
+function showPinStats(loc) {
+    document.getElementById('pin-card-title').textContent = `📍 ${loc.label}`;
+    const locRecs = allRecords.filter(r => r.pinId === loc.id || r.loc === loc.label);
+    const avg = metric => {
+        const vals = locRecs.filter(r => r.metric === metric).map(r => parseFloat(r.value)).filter(v => !isNaN(v));
+        return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+    };
+    document.getElementById('pin-stat-body').innerHTML = `
+        <div class="pin-metrics">
+            ${Object.entries(METRICS).map(([key, m]) => {
+                const v = avg(key);
+                return `<div class="pm-row${key === activeMetric ? ' active' : ''}">
+                    <span class="pm-label">${m.label}</span>
+                    <span class="pm-val" style="color:${m.color}">${v !== null ? v.toFixed(1) : '—'}</span>
+                    <span class="pm-unit">${v !== null ? m.unit : ''}</span>
+                </div>`;
+            }).join('')}
+        </div>
+        <div class="pm-count">총 ${locRecs.length}회 측정</div>`;
+    document.getElementById('pin-chart-card').style.display = 'block';
+    _redrawPinChart(loc);
+}
+function _redrawPinChart(loc) {
+    const locRecs    = allRecords.filter(r => r.pinId === loc.id || r.loc === loc.label);
+    const metricRecs = locRecs.filter(r => r.metric === activeMetric);
+    document.getElementById('pin-chart-title').textContent =
+        `${loc.label} · ${METRICS[activeMetric].label} ${_modeLabel(pinChartMode)}`;
+    drawSingleChart('pin-chart', 'pin-nodata', metricRecs, activeMetric, 'pin', pinChartMode);
+}
+function clearPinSide() {
+    document.getElementById('pin-card-title').textContent = '장소를 선택하세요';
+    document.getElementById('pin-stat-body').innerHTML    = '<div class="pm-empty">평면도에서 핀을 클릭하면<br>이 장소의 측정값을 볼 수 있습니다</div>';
+    document.getElementById('pin-chart-card').style.display = 'none';
+    if (chartPinInst) { chartPinInst.destroy(); chartPinInst = null; }
+}
+
+/* ============================================================
+    순위 막대
+============================================================ */
+function renderRankBars() {
+    const wrap  = document.getElementById('rank-bars');
+    const meta  = METRICS[activeMetric];
+    const floorFilter = rankScope === 'floor' ? currentFloor : null;
+    const locAvg = calcLocAvg(floorFilter, activeMetric);
+    const locs   = rankScope === 'floor'
+        ? (FIXED_LOCATIONS[currentFloor] || [])
+        : Object.values(FIXED_LOCATIONS).flat();
+    document.getElementById('rank-title').textContent = rankScope === 'floor'
+        ? `${currentFloor}층 장소별 ${meta.label} 순위`
+        : `전체 층 장소별 ${meta.label} 순위`;
+    const items = locs
+        .map(l => ({ label: l.label, id: l.id, val: locAvg[l.id] ?? locAvg[l.label] }))
+        .filter(i => i.val !== undefined)
+        .sort((a, b) => b.val - a.val);
+    if (!items.length) { wrap.innerHTML = '<div class="empty-msg">측정 데이터가 없습니다</div>'; return; }
+    const maxVal = items[0].val;
+    const minVal = items[items.length - 1].val;
+    const range  = maxVal - minVal || 1;
+    wrap.innerHTML = items.map((item, idx) => {
+        const pct = maxVal > 0 ? (item.val / maxVal * 100) : 0;
+        const t   = (item.val - minVal) / range;
+        const barColor = interpolateGold(t);
+        const isSel = item.id === selectedPinId || item.label === selectedPinLoc;
+        return `<div class="rank-row">
+            <div class="rank-num">${idx + 1}</div>
+            <div class="rank-name" title="${item.label}" style="${isSel ? 'font-weight:600;color:var(--school-blue);' : ''}">${item.label}</div>
+            <div class="rank-bar-bg"><div class="rank-bar-fill" style="width:${pct.toFixed(1)}%;background:${isSel ? 'var(--school-blue)' : barColor};"></div></div>
+            <div class="rank-val">${item.val.toFixed(1)} ${meta.unit}</div>
+        </div>`;
+    }).join('');
+}
+
+function renderAllRank() {
+    const wrap   = document.getElementById('all-rank-bars');
+    const meta   = METRICS[activeMetric];
+    const allLocs = Object.values(FIXED_LOCATIONS).flat();
+    const locAvg  = calcLocAvg(null, activeMetric);
+    document.getElementById('all-rank-title').textContent = `전체 장소 ${meta.label} 순위`;
+    const items = allLocs
+        .map(l => ({ label: l.label, id: l.id, val: locAvg[l.id] ?? locAvg[l.label] }))
+        .filter(i => i.val !== undefined)
+        .sort((a, b) => b.val - a.val);
+    if (!items.length) { wrap.innerHTML = '<div class="empty-msg">측정 데이터가 없습니다</div>'; return; }
+    const maxVal = items[0].val;
+    const minVal = items[items.length - 1].val;
+    const range  = maxVal - minVal || 1;
+    wrap.innerHTML = items.map((item, idx) => {
+        const pct = maxVal > 0 ? (item.val / maxVal * 100) : 0;
+        const t   = (item.val - minVal) / range;
+        const barColor = interpolateGold(t);
+        return `<div class="rank-row">
+            <div class="rank-num">${idx + 1}</div>
+            <div class="rank-name" title="${item.label}">${item.label}</div>
+            <div class="rank-bar-bg"><div class="rank-bar-fill" style="width:${pct.toFixed(1)}%;background:${barColor};"></div></div>
+            <div class="rank-val">${item.val.toFixed(1)} ${meta.unit}</div>
+        </div>`;
+    }).join('');
+    updateCompareSelects(items.map(i => i.label));
+}
+
+function updateCompareSelects(labels) {
+    ['cmp-loc-a', 'cmp-loc-b'].forEach((selId, idx) => {
+        const sel = document.getElementById(selId);
+        const cur = sel.value;
+        sel.innerHTML = '<option value="">— 선택 —</option>' +
+            labels.map(l => `<option value="${l}"${l === cur ? ' selected' : ''}>${l}</option>`).join('');
+        if (!cur && labels.length > idx) sel.value = labels[idx];
+    });
+}
+
+/* ============================================================
+    비교 탭
+============================================================ */
+function renderCompare() {
+    const locA   = document.getElementById('cmp-loc-a')?.value;
+    const locB   = document.getElementById('cmp-loc-b')?.value;
+    const meta   = METRICS[activeMetric];
+    const numsEl = document.getElementById('compare-nums');
+    document.getElementById('cmp-chart-title').textContent =
+        locA && locB ? `${locA} vs ${locB} · ${meta.label} ${_modeLabel(cmpChartMode)}` : '두 장소 시간별 비교';
+    if (!locA || !locB) {
+        numsEl.innerHTML = '<div class="empty-msg" style="grid-column:1/-1;">장소를 선택하면 비교 결과가 표시됩니다</div>';
+        return;
+    }
+    const avgFor = locLabel => {
+        const res = {};
+        Object.keys(METRICS).forEach(key => {
+            const vals = allRecords.filter(r => r.loc === locLabel && r.metric === key).map(r => parseFloat(r.value)).filter(v => !isNaN(v));
+            res[key] = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+        });
+        return res;
+    };
+    const avgsA = avgFor(locA);
+    const avgsB = avgFor(locB);
+    const vA    = avgsA[activeMetric];
+    const vB    = avgsB[activeMetric];
+    let diffHtml = '';
+    if (vA !== null && vB !== null) {
+        const diff = vA - vB;
+        const cls  = Math.abs(diff) < 0.01 ? 'same' : diff > 0 ? 'higher' : 'lower';
+        const lbl  = Math.abs(diff) < 0.01 ? '동일' : diff > 0 ? `A가 ${Math.abs(diff).toFixed(1)} 높음` : `B가 ${Math.abs(diff).toFixed(1)} 높음`;
+        diffHtml = `<div class="cmp-diff ${cls}" style="margin-top:6px;">${lbl}</div>`;
+    }
+    const metricRows = avgs => Object.entries(METRICS).map(([key, m]) => {
+        const v = avgs[key];
+        return `<div class="cmp-metric-row">
+            <span class="cmp-metric-label">${m.label}</span>
+            <span>
+                <span class="cmp-val" style="color:${m.color};${key === activeMetric ? 'font-size:22px;' : ''}">${v !== null ? v.toFixed(1) : '—'}</span>
+                <span class="cmp-unit">${v !== null ? m.unit : ''}</span>
+            </span>
+        </div>`;
+    }).join('');
+    numsEl.innerHTML = `
+        <div class="cmp-card"><div class="cmp-loc-name">🔵 ${locA}</div>${metricRows(avgsA)}${diffHtml}</div>
+        <div class="cmp-vs">vs</div>
+        <div class="cmp-card right"><div class="cmp-loc-name">🟡 ${locB}</div>${metricRows(avgsB)}</div>`;
+    const recsA = allRecords.filter(r => r.loc === locA && r.metric === activeMetric);
+    const recsB = allRecords.filter(r => r.loc === locB && r.metric === activeMetric);
+    drawCompareChart(locA, locB, recsA, recsB, activeMetric, cmpChartMode);
+}
+
+/* ============================================================
+    [수정 3] 비교 차트 — 두 선이 같은 시간축에서 겹쳐 보이게
+    x축을 'time' 타입으로 사용해 실제 타임스탬프 기준으로 배치.
+    두 장소가 측정 시각이 달라도 같은 축 위에 나란히 표시됨.
+============================================================ */
+function drawCompareChart(locA, locB, recsA, recsB, metric, mode) {
+    const canvas = document.getElementById('cmp-chart');
+    const nodata = document.getElementById('cmp-nodata');
+    const meta   = METRICS[metric];
+    if (chartCmpInst) { chartCmpInst.destroy(); chartCmpInst = null; }
+    if (!recsA.length && !recsB.length) {
+        canvas.style.display = 'none'; nodata.style.display = 'block'; return;
+    }
+    canvas.style.display = 'block'; nodata.style.display = 'none';
+
+    if (mode === 'time') {
+        /*
+            두 장소의 선이 겹치지 않던 원인:
+            Chart.js line 타입은 두 데이터셋의 x 좌표가 다르면
+            내부적으로 인덱스 기반으로 배치해 실제로 분리된 영역에 그려집니다.
+
+            해결: scatter 타입 + showLine: true 사용.
+            scatter는 x를 실제 픽셀 좌표(밀리초 타임스탬프)로 배치하므로
+            두 장소가 서로 다른 날/시각에 측정되어도 같은 시간 축 위에
+            정확한 위치에 점이 찍히고 선이 이어집니다.
+        */
+        const fmtCmpT = r => { const d = new Date(r.time); return isNaN(d) ? r.time : `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; };
+        const toPoint = r => ({ x: fmtCmpT(r), y: parseFloat(r.value) });
+        chartCmpInst = new Chart(canvas, {
+            type: 'scatter',
+            data: {
+                datasets: [
+                    {
+                        label:            locA,
+                        data:             recsA.sort((a,b) => new Date(a.time)-new Date(b.time)).map(toPoint),
+                        borderColor:      '#5782b7',
+                        backgroundColor:  '#5782b7cc',
+                        borderWidth:      2,
+                        pointRadius:      4,
+                        pointHoverRadius: 6,
+                        showLine:         true,
+                        tension:          0.3,
+                    },
+                    {
+                        label:            locB,
+                        data:             recsB.sort((a,b) => new Date(a.time)-new Date(b.time)).map(toPoint),
+                        borderColor:      '#ccac33',
+                        backgroundColor:  '#ccac33cc',
+                        borderWidth:      2,
+                        pointRadius:      4,
+                        pointHoverRadius: 6,
+                        showLine:         true,
+                        tension:          0.3,
+                    },
+                ],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend:  { display: true, position: 'top', labels: { font: { size: 11 } } },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)} ${meta.unit}`,
+                        },
+                    },
+                },
+                scales: {
+                    x: {
+                        type: 'category',
+                        ticks:  { font: { size: 10 }, color: '#a09880', maxTicksLimit: 8, maxRotation: 40 },
+                        grid:   { color: '#e8e4da' },
+                    },
+                    y: {
+                        ticks:  { font: { size: 10 }, color: '#a09880', callback: v => `${v} ${meta.unit}` },
+                        grid:   { color: '#e8e4da' },
+                        beginAtZero: false,
+                    },
+                },
+            },
+        });
+    } else {
+        /* 날별/시간대별 막대 비교 */
+        const grpFn  = mode === 'day' ? _groupByDay : _groupByHour;
+        const ga     = grpFn(recsA);
+        const gb     = grpFn(recsB);
+        const labels = [...new Set([...Object.keys(ga), ...Object.keys(gb)])].sort((a, b) => {
+            /* 날별은 날짜 순, 시간대별은 숫자 순 정렬 */
+            if (mode === 'hour') return +a - +b;
+            const [ma, da] = a.split('/').map(Number);
+            const [mb, db] = b.split('/').map(Number);
+            return ma !== mb ? ma - mb : da - db;
+        });
+        const labelsDisplay = mode === 'hour' ? labels.map(l => `${l}시`) : labels;
+        chartCmpInst = new Chart(canvas, {
+            type: 'bar',
+            data: {
+                labels: labelsDisplay,
+                datasets: [
+                    { label: locA, data: labels.map(l => ga[l] ?? null), backgroundColor: '#5782b788', borderColor: '#5782b7', borderWidth: 1 },
+                    { label: locB, data: labels.map(l => gb[l] ?? null), backgroundColor: '#ccac3388', borderColor: '#ccac33', borderWidth: 1 },
+                ],
+            },
+            options: _barOpts(meta, true),
+        });
+    }
+}
+
+/* ============================================================
+    데이터 탭
+============================================================ */
+function renderDataTab() {
+    const filterLoc    = document.getElementById('df-loc')?.value    || '';
+    const filterMetric = document.getElementById('df-metric')?.value || '';
+    const meta         = METRICS[filterMetric] || {};
+    const locs   = [...new Set(allRecords.map(r => r.loc))].sort();
+    const locSel = document.getElementById('df-loc');
+    if (locSel) {
+        const cur = locSel.value;
+        locSel.innerHTML = '<option value="">전체</option>' + locs.map(l => `<option value="${l}"${l === cur ? ' selected' : ''}>${l}</option>`).join('');
+    }
+    const metricSel = document.getElementById('df-metric');
+    if (metricSel) {
+        const curMetric = metricSel.value;
+        metricSel.innerHTML = '<option value="">전체</option>' + Object.entries(METRICS).map(([k, m]) => `<option value="${k}"${k === curMetric ? ' selected' : ''}>${m.label}</option>`).join('');
+    }
+    let data = allRecords;
+    if (filterLoc)    data = data.filter(r => r.loc === filterLoc);
+    if (filterMetric) data = data.filter(r => r.metric === filterMetric);
+    document.getElementById('kpi-row').innerHTML = [
+        { label: '총 기록 수',   val: data.length.toLocaleString(), unit: '건',    col: 'var(--school-blue)' },
+        { label: '측정 장소 수', val: new Set(data.map(r => r.loc)).size, unit: '곳', col: 'var(--school-gold)' },
+        { label: '참여 인원 수', val: new Set(data.map(r => r.user).filter(Boolean)).size, unit: '명', col: 'var(--green)' },
+        { label: '측정 항목 수', val: new Set(data.map(r => r.metric)).size, unit: '종', col: 'var(--school-dark)' },
+    ].map(k => `<div class="kpi-card"><div class="kpi-label">${k.label}</div><div class="kpi-val" style="color:${k.col}">${k.val}</div><div class="kpi-unit">${k.unit}</div></div>`).join('');
+    document.getElementById('data-chart-title').textContent =
+        `${filterLoc || '전체 장소'} · ${meta.label || '전체 항목'} ${_modeLabel(dataChartMode)}`;
+    if (filterMetric) {
+        drawSingleChart('data-chart', 'data-nodata', data, filterMetric, 'data', dataChartMode);
+    } else {
+        drawAllMetricsChart('data-chart', 'data-nodata', data, dataChartMode);
+    }
+    const tbody = document.getElementById('data-tbody');
+    if (!data.length) { tbody.innerHTML = `<tr><td colspan="8" class="empty-msg">데이터가 없습니다</td></tr>`; return; }
+    tbody.innerHTML = data.slice().reverse().map(r => {
+        const m = METRICS[r.metric] || { label: r.metric, unit: '', color: 'inherit' };
+        return `<tr>
+            <td class="mono-td">${(r.time || '').replace('T', ' ')}</td>
+            <td><span class="floor-pill">${r.floor}층</span></td>
+            <td>${r.loc || '—'}</td>
+            <td style="color:${m.color};font-weight:500;">${m.label}</td>
+            <td class="mono-td" style="color:${m.color}">${r.value || '—'}</td>
+            <td class="mono-td">${m.unit}</td>
+            <td>${r.user || '—'}</td>
+            <td style="color:var(--text3);font-size:11px;">${r.memo || ''}</td>
+        </tr>`;
+    }).join('');
+}
+
+/* ============================================================
+    [수정 1] 전체 항목 차트 — 시간축을 'time' 타입으로 사용
+    이전에는 'category' 타입이라 각 항목의 x 라벨이 달라
+    차트가 뒤엉켰습니다.
+    → x축을 실제 타임스탬프 기반 'time' 타입으로 변경해
+      모든 항목이 올바른 시간 위치에 점이 찍히고 선이 이어집니다.
+    정규화(0~100%)는 단위가 달라도 같은 축에 보이기 위해 유지.
+============================================================ */
+function drawAllMetricsChart(canvasId, nodataId, records, mode) {
+    const canvas = document.getElementById(canvasId);
+    const nodata = document.getElementById(nodataId);
+    if (chartDataInst) { chartDataInst.destroy(); chartDataInst = null; }
+    const hasAny = records.some(r => r.metric && r.value !== '' && !isNaN(parseFloat(r.value)));
+    if (!records.length || !hasAny) {
+        canvas.style.display = 'none'; nodata.style.display = 'block';
+        nodata.textContent = '선택한 조건의 데이터가 없습니다'; return;
+    }
+    canvas.style.display = 'block'; nodata.style.display = 'none';
+
+    /* 날짜 포맷 헬퍼 (어댑터 불필요) */
+    const fmtT = timeStr => {
+        const d = new Date(timeStr);
+        if (isNaN(d)) return timeStr;
+        return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    };
+
+    if (mode === 'time') {
+        /*
+            전체 장소의 2시간 구간 평균으로 그래프를 그립니다.
+            장소별로 데이터셋을 분리하면 선이 많아 뒤엉키므로,
+            2시간 단위 구간으로 묶어 전체 장소 평균을 계산합니다.
+            → x축: "4/1 08" 처럼 2시간 구간 레이블 (시간 순 정렬)
+            → y축: 각 항목을 min-max 정규화(0~100%)
+            → 항목마다 1개의 선으로 깔끔하게 표시
+        */
+
+        /* 2시간 구간 키 생성: "M/D HH" (HH는 짝수로 내림) */
+        const slotKey = timeStr => {
+            const d = new Date(timeStr);
+            if (isNaN(d)) return null;
+            const slotH = Math.floor(d.getHours() / 2) * 2;   /* 0,2,4,...,22 */
+            return `${d.getMonth()+1}/${d.getDate()} ${String(slotH).padStart(2,'0')}시`;
+        };
+
+        /* 항목별 → 구간별 평균 계산 */
+        const metricSlots = {};   /* { metricKey: { slotKey: {sum,cnt} } } */
+        records.forEach(r => {
+            const v = parseFloat(r.value);
+            if (!r.metric || isNaN(v)) return;
+            const sk = slotKey(r.time);
+            if (!sk) return;
+            if (!metricSlots[r.metric]) metricSlots[r.metric] = {};
+            if (!metricSlots[r.metric][sk]) metricSlots[r.metric][sk] = { sum: 0, cnt: 0 };
+            metricSlots[r.metric][sk].sum += v;
+            metricSlots[r.metric][sk].cnt++;
+        });
+
+        /* 전체 구간 레이블을 시간 순으로 정렬 */
+        const allSlots = [...new Set(
+            Object.values(metricSlots).flatMap(sl => Object.keys(sl))
+        )].sort((a, b) => {
+            /* "M/D HH시" 파싱해서 날짜+시간 기준 정렬 */
+            const parse = s => {
+                const m = s.match(/(\d+)\/(\d+)\s+(\d+)시/);
+                return m ? new Date(2025, +m[1]-1, +m[2], +m[3]) : new Date(0);
+            };
+            return parse(a) - parse(b);
+        });
+
+        /* 항목별 정규화 + 데이터셋 생성 */
+        const datasets = Object.entries(METRICS).map(([key, m]) => {
+            if (!metricSlots[key]) return null;
+            const avgVals = allSlots.map(sk => {
+                const acc = metricSlots[key][sk];
+                return acc ? acc.sum / acc.cnt : null;
+            });
+            const defined = avgVals.filter(v => v !== null);
+            if (!defined.length) return null;
+
+            const rMin   = Math.min(...defined);
+            const rMax   = Math.max(...defined);
+            const rRange = rMax - rMin || 1;
+
+            return {
+                label:           `${m.label} (${m.unit})`,
+                data:            avgVals.map((v, i) => v !== null ? {
+                    x:    allSlots[i],
+                    y:    (v - rMin) / rRange * 100,
+                    raw:  v,
+                    unit: m.unit,
+                } : null).filter(Boolean),
+                borderColor:     m.color,
+                backgroundColor: m.color + '22',
+                borderWidth:     2,
+                pointRadius:     3,
+                pointHoverRadius: 5,
+                tension:         0.3,
+                fill:            false,
+                showLine:        true,
+                metricKey:       key,
+                metricColor:     m.color,
+            };
+        }).filter(Boolean);
+
+        chartDataInst = new Chart(canvas, {
+            type: 'scatter',
+            data: { datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        labels: { font: { size: 10 }, boxWidth: 12 },
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => {
+                                const d = ctx.raw;
+                                return ` ${ctx.dataset.label.split(' (')[0]}: ${d.raw.toFixed(1)} ${d.unit}`;
+                            },
+                        },
+                    },
+                },
+                scales: {
+                    x: {
+                        type: 'category',
+                        ticks: { font: { size: 10 }, color: '#a09880', maxTicksLimit: 10, maxRotation: 40 },
+                        grid:  { color: '#e8e4da' },
+                    },
+                    y: {
+                        min: 0, max: 100,
+                        ticks: { font: { size: 10 }, color: '#a09880', callback: v => `${v}%` },
+                        grid:  { color: '#e8e4da' },
+                        title: { display: true, text: '정규화 (0%=최저, 100%=최고)', font: { size: 9 }, color: '#a09880' },
+                    },
+                },
+            },
+        });
+    } else {
+        /* 날별/시간대별 막대 — 정규화 */
+        const grpFn   = mode === 'day' ? _groupByDay : _groupByHour;
+        const allKeys = new Set();
+        const byMetric = {};
+        Object.keys(METRICS).forEach(key => {
+            const recs = records.filter(r => r.metric === key);
+            if (!recs.length) return;
+            const grp = grpFn(recs);
+            if (!Object.keys(grp).length) return;
+            const gVals  = Object.values(grp);
+            const gMin   = Math.min(...gVals);
+            const gMax   = Math.max(...gVals);
+            const gRange = gMax - gMin || 1;
+            const normGrp = {};
+            Object.entries(grp).forEach(([k, v]) => { normGrp[k] = { norm: (v - gMin) / gRange * 100, raw: v }; });
+            byMetric[key] = normGrp;
+            Object.keys(normGrp).forEach(k => allKeys.add(k));
+        });
+        const labels = [...allKeys].sort((a, b) => mode === 'hour' ? +a - +b : 0);
+        const labelsDisplay = mode === 'hour' ? labels.map(l => `${l}시`) : labels;
+        const datasets = Object.entries(byMetric).map(([key, grp]) => ({
+            label:           `${METRICS[key].label} (${METRICS[key].unit})`,
+            data:            labels.map(l => grp[l]?.norm ?? null),
+            rawData:         labels.map(l => grp[l]?.raw  ?? null),
+            backgroundColor: METRICS[key].color + '88',
+            borderColor:     METRICS[key].color,
+            borderWidth:     1,
+        }));
+        chartDataInst = new Chart(canvas, {
+            type: 'bar',
+            data: { labels: labelsDisplay, datasets },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: true, position: 'top', labels: { font: { size: 10 }, boxWidth: 12 } },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => {
+                                const raw  = ctx.dataset.rawData[ctx.dataIndex];
+                                const unit = ctx.dataset.label.match(/\((.+)\)/)?.[1] || '';
+                                return raw !== null ? ` ${ctx.dataset.label.split('(')[0].trim()}: ${raw.toFixed(1)} ${unit}` : ' —';
+                            },
+                        },
+                    },
+                },
+                scales: {
+                    x: { ticks: { font: { size: 10 }, color: '#a09880' }, grid: { color: '#e8e4da' } },
+                    y: {
+                        min: 0, max: 100,
+                        ticks: { font: { size: 10 }, color: '#a09880', callback: v => `${v}%` },
+                        grid: { color: '#e8e4da' },
+                        title: { display: true, text: '정규화 (0%=최저, 100%=최고)', font: { size: 9 }, color: '#a09880' },
+                    },
+                },
+            },
+        });
+    }
+}
+
+/* ============================================================
+    단일 항목 차트 (핀 사이드 / 데이터 탭 단일 선택 시)
+    시간 흐름 모드: x축 'time' 타입으로 정렬 보장
+============================================================ */
+function drawSingleChart(canvasId, nodataId, records, metric, instKey, mode) {
+    const canvas = document.getElementById(canvasId);
+    const nodata = document.getElementById(nodataId);
+    const meta   = METRICS[metric];
+    if (instKey === 'pin'  && chartPinInst)  { chartPinInst.destroy();  chartPinInst  = null; }
+    if (instKey === 'data' && chartDataInst) { chartDataInst.destroy(); chartDataInst = null; }
+    const valid = records.filter(r => r.metric === metric && r.value !== '' && !isNaN(parseFloat(r.value)));
+    if (!valid.length) {
+        canvas.style.display = 'none'; nodata.style.display = 'block';
+        if (nodataId === 'data-nodata') nodata.textContent = '선택한 조건의 데이터가 없습니다'; return;
+    }
+    canvas.style.display = 'block'; nodata.style.display = 'none';
+    let inst;
+    if (mode === 'time') {
+        const sorted = valid.sort((a, b) => new Date(a.time) - new Date(b.time));
+        const fmtST = r => { const d = new Date(r.time); return isNaN(d) ? r.time : `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; };
+        inst = new Chart(canvas, {
+            type: 'scatter',
+            data: {
+                datasets: [{
+                    label:           `${meta.label} (${meta.unit})`,
+                    data:            sorted.map(r => ({ x: fmtST(r), y: parseFloat(r.value) })),
+                    borderColor:     meta.color,
+                    backgroundColor: meta.color + 'aa',
+                    borderWidth:     2,
+                    pointRadius:     3,
+                    pointHoverRadius: 5,
+                    showLine:        true,
+                    tension:         0.3,
+                    fill:            false,
+                }],
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: {
+                    legend:  { display: false },
+                    tooltip: { callbacks: {
+                        label: ctx => ` ${ctx.parsed.y.toFixed(1)} ${meta.unit}`,
+                    }},
+                },
+                scales: {
+                    x: {
+                        type: 'category',
+                        ticks: { font: { size: 10 }, color: '#a09880', maxTicksLimit: 8, maxRotation: 40 },
+                        grid:  { color: '#e8e4da' },
+                    },
+                    y: { ticks: { font: { size: 10 }, color: '#a09880', callback: v => `${v} ${meta.unit}` }, grid: { color: '#e8e4da' }, beginAtZero: false },
+                },
+            },
+        });
+    } else if (mode === 'day') {
+        const grp    = _groupByDay(valid);
+        const labels = Object.keys(grp).sort((a, b) => { const [ma,da]=a.split('/').map(Number); const [mb,db]=b.split('/').map(Number); return ma!==mb?ma-mb:da-db; });
+        inst = new Chart(canvas, { type: 'bar', data: { labels, datasets: [{ label: `${meta.label} 날별 평균`, data: labels.map(l => grp[l]), backgroundColor: meta.color + '88', borderColor: meta.color, borderWidth: 1 }] }, options: _barOpts(meta, false) });
+    } else if (mode === 'hour') {
+        const grp    = _groupByHour(valid);
+        const labels = Object.keys(grp).sort((a, b) => +a - +b);
+        inst = new Chart(canvas, { type: 'bar', data: { labels: labels.map(h => `${h}시`), datasets: [{ label: `${meta.label} 시간대별 평균`, data: labels.map(l => grp[l]), backgroundColor: meta.color + '88', borderColor: meta.color, borderWidth: 1 }] }, options: _barOpts(meta, false) });
+    }
+    if (instKey === 'pin')  chartPinInst  = inst;
+    if (instKey === 'data') chartDataInst = inst;
+}
+
+/* ============================================================
+    그룹 헬퍼
+============================================================ */
+function _groupByDay(records) {
+    const acc = {};
+    records.forEach(r => {
+        const d = new Date(r.time); if (isNaN(d)) return;
+        const k = `${d.getMonth()+1}/${d.getDate()}`;
+        if (!acc[k]) acc[k] = { sum: 0, cnt: 0 };
+        acc[k].sum += parseFloat(r.value); acc[k].cnt++;
+    });
+    const res = {};
+    Object.entries(acc).forEach(([k, v]) => { res[k] = parseFloat((v.sum/v.cnt).toFixed(2)); });
+    return res;
+}
+function _groupByHour(records) {
+    const acc = {};
+    records.forEach(r => {
+        const d = new Date(r.time); if (isNaN(d)) return;
+        const k = String(d.getHours());
+        if (!acc[k]) acc[k] = { sum: 0, cnt: 0 };
+        acc[k].sum += parseFloat(r.value); acc[k].cnt++;
+    });
+    const res = {};
+    Object.entries(acc).forEach(([k, v]) => { res[k] = parseFloat((v.sum/v.cnt).toFixed(2)); });
+    return res;
+}
+function _modeLabel(mode) { return mode==='time'?'시간 흐름':mode==='day'?'날별 평균':'시간대별 평균'; }
+
+/* ============================================================
+    Chart.js 옵션 헬퍼
+============================================================ */
+function _barOpts(meta, showLegend) {
+    return {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+            legend:  { display: showLegend, position: 'top', labels: { font: { size: 11 } } },
+            tooltip: { callbacks: { label: ctx => ` ${ctx.parsed.y!==null?ctx.parsed.y.toFixed(1):'—'}${meta.unit?' '+meta.unit:''}` } },
+        },
+        scales: {
+            x: { ticks: { font: { size: 10 }, color: '#a09880' }, grid: { color: '#e8e4da' } },
+            y: { ticks: { font: { size: 10 }, color: '#a09880', callback: v => meta.unit?`${v} ${meta.unit}`:v }, grid: { color: '#e8e4da' }, beginAtZero: false },
+        },
+    };
+}
+
+/* ============================================================
+    데이터 불러오기
+============================================================ */
+async function fetchData(showToast = true) {
+    const btn = document.getElementById('refresh-btn');
+    btn.classList.add('loading');
+    if (SHEETS_URL.includes('여기에_URL')) {
+        allRecords = generateDummyData();
+        finishFetch(btn, showToast, '테스트 데이터'); return;
+    }
+    try {
+        const res  = await fetch(SHEETS_URL, { method: 'GET', headers: { 'Accept': 'application/json' } });
+        const data = await res.json();
+        if (!data.records || !Array.isArray(data.records)) throw new Error('형식 오류');
+        allRecords = data.records.map(raw => {
+            const mapped = {};
+            Object.entries(COLUMN_MAP).forEach(([field, colName]) => {
+                mapped[field] = raw[colName] !== undefined ? String(raw[colName]) : '';
+            });
+            if (METRIC_KR[mapped.metric]) mapped.metric = METRIC_KR[mapped.metric];
+            return mapped;
+        });
+        finishFetch(btn, showToast, `${allRecords.length}건`);
+    } catch (e) {
+        btn.classList.remove('loading');
+        setLiveStatus(false);
+        if (showToast) toast('데이터를 불러오지 못했습니다', 'err');
+    }
+}
+function finishFetch(btn, showToast, label) {
+    btn.classList.remove('loading');
+    setLiveStatus(true);
+    const now = new Date();
+    document.getElementById('live-txt').textContent =
+        `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')} 갱신`;
+    renderAll();
+    if (showToast) toast(`${label} 불러오기 완료`, 'ok');
+}
+function setLiveStatus(ok) { document.getElementById('live-dot').className = 'live-dot' + (ok ? '' : ' inactive'); }
+function startPolling() {
+    if (pollingTimer) clearInterval(pollingTimer);
+    pollingTimer = setInterval(() => fetchData(false), REFRESH_INTERVAL_MS);
+}
+
+/* ============================================================
+    더미 데이터 (테스트용)
+============================================================ */
+function generateDummyData() {
+    const locs  = [
+        { floor: '1', loc: '급식실',       pinId: 'f1-canteen' },
+        { floor: '1', loc: '교무실',       pinId: 'f1-office'  },
+        { floor: '1', loc: '보건실',       pinId: 'f1-nurse'   },
+        { floor: '2', loc: '미술실',       pinId: 'f2-art'     },
+        { floor: '2', loc: '2층 복도',     pinId: 'f2-cor'     },
+        { floor: '3', loc: '컴퓨터실',     pinId: 'f3-comp'    },
+        { floor: '4', loc: '벼리(도서관)', pinId: 'f4-lib'     },
+    ];
+    const ranges = { lux:[200,800], db:[40,90], temp:[18,30], humi:[35,75], dust:[5,80] };
+    const users  = ['김지은','박준호','이서연','최민준','정다은'];
+    const dummy  = [];
+    locs.forEach(l => {
+        Object.entries(ranges).forEach(([metric, [min, max]]) => {
+            for (let day = 0; day < 5; day++) {
+                for (let hour = 8; hour <= 16; hour += 2) {
+                    const d = new Date(2025, 3, 1+day, hour, Math.floor(Math.random()*60));
+                    dummy.push({
+                        time:   d.toISOString().slice(0,16).replace('T',' '),
+                        floor:  l.floor, loc: l.loc, pinId: l.pinId, metric,
+                        value:  (min + Math.random()*(max-min)).toFixed(1),
+                        user:   users[Math.floor(Math.random()*users.length)], memo: '',
+                    });
+                }
+            }
+        });
+    });
+    return dummy;
+}
+
+/* ============================================================
+    유틸
+============================================================ */
+function findLoc(pinId) {
+    for (const locs of Object.values(FIXED_LOCATIONS)) {
+        const found = locs.find(l => l.id === pinId);
+        if (found) return found;
+    }
+    return null;
+}
+function exportCSV() {
+    if (!allRecords.length) { toast('내보낼 데이터가 없습니다'); return; }
+    const cols = ['일시','층','장소','핀ID','측정항목','측정값','단위','측정자','메모'];
+    const rows = allRecords.map(r => {
+        const m = METRICS[r.metric] || { unit: '' };
+        return [r.time,r.floor,r.loc,r.pinId,r.metric,r.value,m.unit,r.user,r.memo]
+            .map(v => `"${String(v??'').replace(/"/g,'""')}"`)
+            .join(',');
+    });
+    const csv = '\uFEFF' + [cols.join(','), ...rows].join('\n');
+    const a   = document.createElement('a');
+    a.href     = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
+    a.download = '환경측정데이터_' + new Date().toISOString().slice(0,10) + '.csv';
+    a.click();
+    toast('CSV 다운로드 완료', 'ok');
+}
+function toast(msg, type) {
+    const box = document.getElementById('toast-box');
+    const el  = document.createElement('div');
+    el.className   = 'toast' + (type ? ' ' + type : '');
+    el.textContent = msg;
+    box.appendChild(el);
+    requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('show')));
+    setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 300); }, 3000);
+}
+</script>
+</body>
+</html>
