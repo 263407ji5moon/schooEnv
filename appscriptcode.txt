@@ -1,0 +1,63 @@
+function doGet(e) {
+  try {
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('폼 응답 1');
+    if (!sheet) {
+      return ContentService.createTextOutput(JSON.stringify({ status: "error", message: "시트를 찾을 수 없습니다." }))
+                           .setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    var rows = sheet.getDataRange().getValues();
+    if (rows.length <= 1) {
+      return ContentService.createTextOutput(JSON.stringify({ status: "success", records: [] }))
+                           .setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    var header = rows[0];
+    
+    // 1. 시트 내에서 각 질문(열)이 몇 번째 칸에 있는지 인덱스를 정확히 찾아냅니다.
+    var idxFloor = header.indexOf("층 선택");
+    
+    // 팁: 똑같은 이름의 열이 여러 개일 때 순서대로 인덱스를 확보합니다.
+    var placeIndices = [];
+    header.forEach(function(title, index) {
+      // 열 이름에 '장소 선택'이 포함되어 있다면 모두 추적 (구글이 자동으로 붙이는 _1, _2 대비)
+      if (title.indexOf("장소 선택") !== -1) {
+        placeIndices.push(index);
+      }
+    });
+
+    // 2. 데이터 가공 시작
+    var records = rows.slice(1).map(function(row) {
+      var obj = {};
+      
+      // 기존 헤더 구조 그대로 매핑 생성
+      header.forEach(function(h, i) { 
+        obj[h.trim()] = String(row[i] || '').trim(); 
+      });
+      
+      // [핵심] 여러 개로 찢어진 장소 선택 열 중, 비어있지 않은 실제 답변 값을 찾아냅니다.
+      var actualPlace = "";
+      for (var k = 0; k < placeIndices.length; k++) {
+        var cellValue = String(row[placeIndices[k]] || '').trim();
+        if (cellValue !== "" && cellValue !== "옵션 1") { 
+          actualPlace = cellValue;
+          break; // 값이 들어있는 칸을 찾았다면 루프 탈출
+        }
+      }
+      
+      // 3. 기존 HTML 대시보드가 단 한 칸의 "장소" 열만 바라보고 작동할 수 있도록 공통 키를 주입합니다.
+      obj["장소"] = actualPlace;
+      
+      return obj;
+    });
+    
+    return ContentService
+      .createTextOutput(JSON.stringify({ records: records }))
+      .setMimeType(ContentService.MimeType.JSON);
+
+  } catch(error) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ status: "error", message: error.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
