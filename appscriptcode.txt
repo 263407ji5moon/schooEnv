@@ -1,63 +1,222 @@
+/**
+ * ================================================================
+ * 우리 학교 환경 지도 — Google Apps Script
+ * ================================================================
+ * 
+ * [설정 방법]
+ * 1. Google Forms에서 응답이 저장되는 스프레드시트를 열기
+ * 2. 확장 프로그램 → Apps Script
+ * 3. 이 코드 전체를 붙여넣기
+ * 4. SHEET_NAME을 실제 시트 이름으로 수정 (기본: '폼 응답 1')
+ * 5. 배포 → 새 배포 → 웹앱으로 배포
+ *    - 실행 계정: 나
+ *    - 액세스 권한: 모든 사람
+ * 6. 배포 URL을 복사해서 map.html의 SHEETS_URL에 붙여넣기
+ *
+ * ================================================================
+ * [구글 폼 구성 — PDF와 동일한 구조]
+ *
+ * 질문 1: 층 선택 (드롭다운, 필수)
+ *   → 섹션 분기: 1→섹션2, 2→섹션3, 3→섹션4, 4→섹션5
+ *
+ * 섹션 2 (1층): 질문 2 — 장소 선택 (객관식)
+ *   → 교무실 / 보건실 / 국기계양대 앞 / 창고
+ *   → 완료 후 → 섹션6으로 이동
+ *
+ * 섹션 3 (2층): 질문 3 — 장소 선택 (객관식)
+ *   → 과학실 앞 / 미술실 / 2층 복도
+ *   → 완료 후 → 섹션6으로 이동
+ *
+ * 섹션 4 (3층): 질문 4 — 장소 선택 (객관식)
+ *   → 컴퓨터실 / 책방 벼리 / 3층 복도
+ *   → 완료 후 → 섹션6으로 이동
+ *
+ * 섹션 5 (4층): 질문 5 — 장소 선택 (객관식)
+ *   → 회의실 / 교장실 / 옥상 테라스
+ *   → 완료 후 → 섹션6으로 이동
+ *
+ * 섹션 6 (측정 기록 입력):
+ *   질문 6: 측정 항목 (드롭다운, 필수)
+ *     → 조도 / 소음 / 온도 / 습도 / 미세먼지
+ *   질문 7: 값 입력 (단답형, 숫자, 필수)
+ *   질문 8: 측정자 이름 (단답형, 선택)
+ *   질문 9: 메모 (장문형, 선택)
+ *
+ * ================================================================
+ * [스프레드시트 컬럼 구조 — 폼 응답 시트]
+ *
+ * 구글 폼이 자동으로 만드는 컬럼:
+ *   A: 타임스탬프
+ *   B: 층 선택
+ *   C: 장소 선택 (1층) — 1층 선택 시에만 값 있음
+ *   D: 장소 선택 (2층) — 2층 선택 시에만 값 있음
+ *   E: 장소 선택 (3층) — 3층 선택 시에만 값 있음
+ *   F: 장소 선택 (4층) — 4층 선택 시에만 값 있음
+ *   G: 측정 항목
+ *   H: 값 입력
+ *   I: 측정자 이름 (선택)
+ *   J: 메모 (선택)
+ *
+ * ================================================================
+ */
+
+// ① 실제 시트 이름으로 변경 (구글 폼 연결 시 자동 생성됨)
+const SHEET_NAME = '폼 응답 1';
+
+// ② 장소별 핀ID 매핑 (FIXED_LOCATIONS의 id와 동일하게)
+const PIN_ID_MAP = {
+    '교무실':       'f1-office',
+    '보건실':       'f1-nurse',
+    '국기계양대 앞': 'f1-canteen',
+    '창고':         'f1-storage',
+    '과학실 앞':    'f2-science',
+    '미술실':       'f2-art',
+    '2층 복도':     'f2-cor',
+    '컴퓨터실':     'f3-comp',
+    '책방 벼리':    'f3-lib',
+    '3층 복도':     'f3-cor',
+    '회의실':       'f4-conf',
+    '교장실':       'f4-prin',
+    '옥상 테라스':  'f4-terrace',
+};
+
+// ③ 측정 항목 한→영 변환
+const METRIC_MAP = {
+    '조도': 'lux',
+    '소음': 'db',
+    '온도': 'temp',
+    '습도': 'humi',
+    '미세먼지': 'dust',
+};
+
+/**
+ * GET 요청 처리 — HTML에서 fetchData() 호출 시 응답
+ */
 function doGet(e) {
-  try {
-    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('폼 응답 1');
-    if (!sheet) {
-      return ContentService.createTextOutput(JSON.stringify({ status: "error", message: "시트를 찾을 수 없습니다." }))
-                           .setMimeType(ContentService.MimeType.JSON);
-    }
-    
-    var rows = sheet.getDataRange().getValues();
-    if (rows.length <= 1) {
-      return ContentService.createTextOutput(JSON.stringify({ status: "success", records: [] }))
-                           .setMimeType(ContentService.MimeType.JSON);
-    }
-    
-    var header = rows[0];
-    
-    // 1. 시트 내에서 각 질문(열)이 몇 번째 칸에 있는지 인덱스를 정확히 찾아냅니다.
-    var idxFloor = header.indexOf("층 선택");
-    
-    // 팁: 똑같은 이름의 열이 여러 개일 때 순서대로 인덱스를 확보합니다.
-    var placeIndices = [];
-    header.forEach(function(title, index) {
-      // 열 이름에 '장소 선택'이 포함되어 있다면 모두 추적 (구글이 자동으로 붙이는 _1, _2 대비)
-      if (title.indexOf("장소 선택") !== -1) {
-        placeIndices.push(index);
-      }
-    });
+    try {
+        const ss    = SpreadsheetApp.getActiveSpreadsheet();
+        const sheet = ss.getSheetByName(SHEET_NAME);
 
-    // 2. 데이터 가공 시작
-    var records = rows.slice(1).map(function(row) {
-      var obj = {};
-      
-      // 기존 헤더 구조 그대로 매핑 생성
-      header.forEach(function(h, i) { 
-        obj[h.trim()] = String(row[i] || '').trim(); 
-      });
-      
-      // [핵심] 여러 개로 찢어진 장소 선택 열 중, 비어있지 않은 실제 답변 값을 찾아냅니다.
-      var actualPlace = "";
-      for (var k = 0; k < placeIndices.length; k++) {
-        var cellValue = String(row[placeIndices[k]] || '').trim();
-        if (cellValue !== "" && cellValue !== "옵션 1") { 
-          actualPlace = cellValue;
-          break; // 값이 들어있는 칸을 찾았다면 루프 탈출
+        if (!sheet) {
+            return jsonResponse({ error: '시트를 찾을 수 없습니다: ' + SHEET_NAME });
         }
-      }
-      
-      // 3. 기존 HTML 대시보드가 단 한 칸의 "장소" 열만 바라보고 작동할 수 있도록 공통 키를 주입합니다.
-      obj["장소"] = actualPlace;
-      
-      return obj;
-    });
-    
-    return ContentService
-      .createTextOutput(JSON.stringify({ records: records }))
-      .setMimeType(ContentService.MimeType.JSON);
 
-  } catch(error) {
-    return ContentService
-      .createTextOutput(JSON.stringify({ status: "error", message: error.toString() }))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
+        const rows   = sheet.getDataRange().getValues();
+        if (rows.length < 2) {
+            return jsonResponse({ records: [] });
+        }
+
+        const header  = rows[0];  // 헤더 행
+        const dataRows = rows.slice(1);
+
+        // 헤더 인덱스 찾기
+        const idx = {
+            time:   findColIdx(header, ['타임스탬프', 'Timestamp']),
+            floor:  findColIdx(header, ['층 선택', '층']),
+            loc1:   findColIdx(header, ['장소 선택 (1층)', '장소 선택', '1층 장소']),
+            loc2:   findColIdx(header, ['장소 선택 (2층)', '2층 장소']),
+            loc3:   findColIdx(header, ['장소 선택 (3층)', '3층 장소']),
+            loc4:   findColIdx(header, ['장소 선택 (4층)', '4층 장소']),
+            metric: findColIdx(header, ['측정 항목', '측정항목']),
+            value:  findColIdx(header, ['값 입력', '측정값', '값']),
+            user:   findColIdx(header, ['측정자 이름', '측정자', '이름']),
+            memo:   findColIdx(header, ['메모', '비고']),
+        };
+
+        const records = dataRows
+            .filter(row => row[idx.time] && row[idx.metric] && row[idx.value] !== '')
+            .map(row => {
+                // 층 번호 추출 (예: "1층" → "1", "2" → "2")
+                const floorRaw = String(row[idx.floor] || '').trim();
+                const floor    = floorRaw.replace(/층$/, '').trim();
+
+                // 장소: 층에 따라 해당 컬럼에서 가져오기
+                let loc = '';
+                if      (floor === '1' && idx.loc1 >= 0) loc = String(row[idx.loc1] || '').trim();
+                else if (floor === '2' && idx.loc2 >= 0) loc = String(row[idx.loc2] || '').trim();
+                else if (floor === '3' && idx.loc3 >= 0) loc = String(row[idx.loc3] || '').trim();
+                else if (floor === '4' && idx.loc4 >= 0) loc = String(row[idx.loc4] || '').trim();
+
+                // 장소를 못 찾은 경우 모든 장소 컬럼에서 비어있지 않은 값 탐색
+                if (!loc) {
+                    [idx.loc1, idx.loc2, idx.loc3, idx.loc4].forEach(ci => {
+                        if (ci >= 0 && !loc) {
+                            const v = String(row[ci] || '').trim();
+                            if (v) loc = v;
+                        }
+                    });
+                }
+
+                // 핀 ID 매핑
+                const pinId = PIN_ID_MAP[loc] || '';
+
+                // 측정 항목 한→영 변환
+                const metricRaw = String(row[idx.metric] || '').trim();
+                const metric    = METRIC_MAP[metricRaw] || metricRaw.toLowerCase();
+
+                // 타임스탬프 포맷
+                const timeVal = row[idx.time];
+                let time = '';
+                if (timeVal instanceof Date) {
+                    time = Utilities.formatDate(timeVal, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
+                } else {
+                    time = String(timeVal).trim();
+                }
+
+                return {
+                    time,
+                    floor,
+                    loc,
+                    pinId,
+                    metric,
+                    value: String(row[idx.value] || '').trim(),
+                    user:  idx.user  >= 0 ? String(row[idx.user]  || '').trim() : '',
+                    memo:  idx.memo  >= 0 ? String(row[idx.memo]  || '').trim() : '',
+                };
+            })
+            .filter(r => r.loc && r.metric && r.value);  // 유효한 기록만
+
+        return jsonResponse({ records });
+
+    } catch (err) {
+        return jsonResponse({ error: err.message, records: [] });
+    }
 }
+
+/**
+ * 헤더에서 컬럼 인덱스 찾기 (여러 후보 이름 중 일치하는 첫 번째)
+ */
+function findColIdx(header, candidates) {
+    for (let i = 0; i < header.length; i++) {
+        const h = String(header[i]).trim();
+        if (candidates.some(c => h.includes(c) || c.includes(h))) return i;
+    }
+    return -1;
+}
+
+/**
+ * JSON 응답 생성
+ */
+function jsonResponse(data) {
+    return ContentService
+        .createTextOutput(JSON.stringify(data))
+        .setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * ================================================================
+ * [테스트용] 스크립트 에디터에서 직접 실행해 동작 확인
+ * ================================================================
+ */
+function testDoGet() {
+    const result = doGet({});
+    const data   = JSON.parse(result.getContent());
+    Logger.log('총 기록 수: ' + data.records.length);
+    if (data.records.length > 0) {
+        Logger.log('첫 번째 기록: ' + JSON.stringify(data.records[0]));
+    }
+    if (data.error) {
+        Logger.log('오류: ' + data.error);
+    }
+}
+
