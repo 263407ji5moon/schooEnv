@@ -1025,116 +1025,85 @@ function drawCompareChart(locA, locB, recsA, recsB, metric, mode) {
     };
 
     if (mode === 'time') {
-        /* 
-            공통 x축 생성:
-            두 장소의 모든 타임스탬프를 합쳐 시간 순으로 정렬.
-            각 장소는 해당 시각에 측정값이 없으면 null을 넣어
-            같은 x축 위에 두 선이 겹쳐 그려지게 함.
-        */
-        const sortedA = recsA.slice().sort((a,b) => new Date(a.time)-new Date(b.time));
-        const sortedB = recsB.slice().sort((a,b) => new Date(a.time)-new Date(b.time));
+    // 1. 원본 데이터를 시간순으로 정렬
+    const sortedA = recsA.slice().sort((a, b) => new Date(a.time) - new Date(b.time));
+    const sortedB = recsB.slice().sort((a, b) => new Date(a.time) - new Date(b.time));
 
-        // 중복 제거한 공통 시간 라벨
-        const labelSet = new Set();
-        sortedA.forEach(r => labelSet.add(fmtT(r.time)));
-        sortedB.forEach(r => labelSet.add(fmtT(r.time)));
-        // 시간 순 정렬
-        const labels = [...labelSet].sort((a, b) => {
-            const parseL = s => {
-                const m = s.match(/(\d+)\/(\d+)\s+(\d+):(\d+)/);
-                return m ? new Date(2025, +m[1]-1, +m[2], +m[3], +m[4]) : new Date(0);
-            };
-            return parseL(a) - parseL(b);
-        });
+    // 2. 고유한 시간(타임스탬프 숫자 값)을 모두 모아서 정렬
+    const timeSet = new Set();
+    sortedA.forEach(r => timeSet.add(new Date(r.time).getTime()));
+    sortedB.forEach(r => timeSet.add(new Date(r.time).getTime()));
+    const sortedTimes = [...timeSet].sort((a, b) => a - b);
 
-        // 라벨별 값 맵 생성
-        const mapA = {};
-        sortedA.forEach(r => { mapA[fmtT(r.time)] = parseFloat(r.value); });
-        const mapB = {};
-        sortedB.forEach(r => { mapB[fmtT(r.time)] = parseFloat(r.value); });
+    // 3. Chart.js용 X축 라벨(문자열) 배열 생성
+    const labels = sortedTimes.map(t => fmtT(t));
 
-        chartCmpInst = new Chart(canvas, {
-            type: 'line',
-            data: {
-                labels,
-                datasets: [
-                    {
-                        label:            locA,
-                        data:             labels.map(l => mapA[l] ?? null),
-                        borderColor:      '#5782b7',
-                        backgroundColor:  '#5782b733',
-                        borderWidth:      2,
-                        pointRadius:      3,
-                        pointHoverRadius: 5,
-                        tension:          0.3,
-                        spanGaps:         true,
-                        fill:             false,
-                    },
-                    {
-                        label:            locB,
-                        data:             labels.map(l => mapB[l] ?? null),
-                        borderColor:      '#ccac33',
-                        backgroundColor:  '#ccac3333',
-                        borderWidth:      2,
-                        pointRadius:      3,
-                        pointHoverRadius: 5,
-                        tension:          0.3,
-                        spanGaps:         true,
-                        fill:             false,
-                    },
-                ],
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend:  { display: true, position: 'top', labels: { font: { size: 11 } } },
-                    tooltip: {
-                        mode: 'index',
-                        intersect: false,
-                        callbacks: {
-                            label: ctx => ctx.parsed.y !== null
-                                ? ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)} ${meta.unit}`
-                                : ` ${ctx.dataset.label}: 측정 없음`,
-                        },
-                    },
+    // 4. 각 시간별 데이터 매핑 (시간 문자열을 키로 사용)
+    const mapA = {};
+    sortedA.forEach(r => { mapA[fmtT(r.time)] = parseFloat(r.value); });
+    const mapB = {};
+    sortedB.forEach(r => { mapB[fmtT(r.time)] = parseFloat(r.value); });
+
+    chartCmpInst = new Chart(canvas, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                {
+                    label:            locA,
+                    data:             labels.map(l => mapA[l] ?? null),
+                    borderColor:      '#5782b7',
+                    backgroundColor:  '#5782b733',
+                    borderWidth:      2,
+                    pointRadius:      4, // 💡 점을 조금 더 잘 보이게 키움
+                    pointHoverRadius: 6,
+                    tension:          0.3,
+                    spanGaps:         true, // 👈 선 연결 활성화
+                    fill:             false,
                 },
-                scales: {
-                    x: {
-                        ticks: { font: { size: 10 }, color: '#a09880', maxTicksLimit: 10, maxRotation: 40 },
-                        grid:  { color: '#e8e4da' },
-                    },
-                    y: {
-                        ticks:  { font: { size: 10 }, color: '#a09880', callback: v => `${v} ${meta.unit}` },
-                        grid:   { color: '#e8e4da' },
-                        beginAtZero: false,
+                {
+                    label:            locB,
+                    data:             labels.map(l => mapB[l] ?? null),
+                    borderColor:      '#ccac33',
+                    backgroundColor:  '#ccac3333',
+                    borderWidth:      2,
+                    pointRadius:      4, // 💡 점을 조금 더 잘 보이게 키움
+                    pointHoverRadius: 6,
+                    tension:          0.3,
+                    spanGaps:         true, // 👈 선 연결 활성화
+                    fill:             false,
+                },
+            ],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend:  { display: true, position: 'top', labels: { font: { size: 11 } } },
+                tooltip: {
+                    mode: 'index',
+                    intersect: false,
+                    callbacks: {
+                        label: ctx => ctx.parsed.y !== null
+                            ? ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)} ${meta.unit}`
+                            : ` ${ctx.dataset.label}: 측정 없음`,
                     },
                 },
             },
-        });
-    } else {
-        const grpFn  = mode === 'day' ? _groupByDay : _groupByHour;
-        const ga     = grpFn(recsA);
-        const gb     = grpFn(recsB);
-        const labels = [...new Set([...Object.keys(ga), ...Object.keys(gb)])].sort((a, b) => {
-            if (mode === 'hour') return +a - +b;
-            const [ma, da] = a.split('/').map(Number);
-            const [mb, db] = b.split('/').map(Number);
-            return ma !== mb ? ma - mb : da - db;
-        });
-        const labelsDisplay = mode === 'hour' ? labels.map(l => `${l}시`) : labels;
-        chartCmpInst = new Chart(canvas, {
-            type: 'bar',
-            data: {
-                labels: labelsDisplay,
-                datasets: [
-                    { label: locA, data: labels.map(l => ga[l] ?? null), backgroundColor: '#5782b788', borderColor: '#5782b7', borderWidth: 1.5 },
-                    { label: locB, data: labels.map(l => gb[l] ?? null), backgroundColor: '#ccac3388', borderColor: '#ccac33', borderWidth: 1.5 },
-                ],
+            scales: {
+                x: {
+                    ticks: { font: { size: 10 }, color: '#a09880', maxTicksLimit: 10, maxRotation: 40 },
+                    grid:  { color: '#e8e4da' },
+                },
+                y: {
+                    ticks:  { font: { size: 10 }, color: '#a09880', callback: v => `${v} ${meta.unit}` },
+                    grid:   { color: '#e8e4da' },
+                    beginAtZero: false,
+                },
             },
-            options: _barOpts(meta, true),
-        });
-    }
+        },
+    });
+}
 }
 
 /* ============================================================
