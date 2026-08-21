@@ -166,7 +166,7 @@ body { font-family: var(--sans); background: var(--bg); color: var(--text); font
 .rank-row  { display: flex; align-items: center; gap: 8px; }
 .rank-num  { font-family: var(--mono); font-size: 11px; color: var(--text3); width: 16px; text-align: right; flex-shrink: 0; }
 .rank-name { font-size: 12px; color: var(--text2); width: 90px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
-.rank-bar-bg { width: 1px !important; flex: 0 0 1px !important; }
+.rank-bar-bg { width: 200px; flex: 0 0 200px; }
 .rank-bar-fill { height: 100%; border-radius: 99px; transition: width 0.4s ease; }
 .rank-val  { font-family: var(--mono); font-size: 11px; color: var(--text2); width: 56px; text-align: right; flex-shrink: 0; }
 
@@ -851,7 +851,7 @@ function renderRankBars() {
         return `<div class="rank-row">
             <div class="rank-num">${idx + 1}</div>
             <div class="rank-name" title="${item.label}" style="${isSel ? 'font-weight:600;color:var(--school-blue);' : ''}">${item.label}</div>
-            <div class="rank-bar-bg" style="width: 70%;"><div class="rank-bar-fill" style="width:${pct.toFixed(1)}%;background:${isSel ? meta.color : barColor};"></div></div>
+            <div class="rank-bar-bg"><div class="rank-bar-fill" style="width:${pct.toFixed(1)}%;background:${isSel ? meta.color : barColor};"></div></div>
             <div class="rank-val">${item.val.toFixed(1)} ${meta.unit}</div>
         </div>`;
     }).join('');
