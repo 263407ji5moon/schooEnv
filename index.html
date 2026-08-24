@@ -227,20 +227,13 @@ body { font-family: var(--sans); background: var(--bg); color: var(--text); font
 
 /* 화면이 좁아질 때(1열): 3번 밑줄은 다시 살리고, 맨 마지막(4번)만 밑줄 지움 */
 @media (max-width: 560px) { 
-  .g-steps-grid { grid-template-columns: 1fr; } 
-  
   .g-steps-grid .g-step:nth-child(3) { 
-    border-bottom: 1px solid var(--border); 
-    margin-bottom: 12px; 
-    padding-bottom: 12px; 
+    border-bottom: 1px solid var(--border) !important; 
+    margin-bottom: 12px !important; 
+    padding-bottom: 12px !important; 
   }
-  
-  .g-steps-grid .g-step:nth-child(4) { 
-    border-bottom: none; 
-    margin-bottom: 0; 
-    padding-bottom: 0; 
-  }
-}.g-num { width: 22px; height: 22px; border-radius: 50%; background: var(--school-blue); color: #fff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px; }
+}
+.g-num { width: 22px; height: 22px; border-radius: 50%; background: var(--school-blue); color: #fff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px; }
 .g-text { font-size: 12px; color: var(--text2); line-height: 1.7; }
 .g-text strong { color: var(--text); display: block; margin-bottom: 1px; }
 .g-p { font-size: 12px; color: var(--text2); line-height: 1.75; margin-bottom: 8px; }
