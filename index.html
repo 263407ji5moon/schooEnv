@@ -852,7 +852,7 @@ function renderRankBars() {
             <div class="rank-num">${idx + 1}</div>
             <div class="rank-name" title="${item.label}" style="${isSel ? 'font-weight:600;color:var(--school-blue);' : ''}">${item.label}</div>
             <div class="rank-bar-bg" style="flex: 1; max-width: 60%;"><div class="rank-bar-fill" style="width:${pct.toFixed(1)}%;background:${isSel ? meta.color : barColor};"></div></div>            
-            <div class="rank-val">${item.val.toFixed(1)} ${meta.unit}</div>
+            <div class="rank-val" style="white-space: nowrap; min-width: 60px; text-align: right;">${item.val.toFixed(1)} ${meta.unit}</div>
         </div>`;
     }).join('');
 }
