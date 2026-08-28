@@ -226,7 +226,12 @@ body { font-family: var(--sans); background: var(--bg); color: var(--text); font
 .g-steps-grid .g-step:nth-child(4) { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
 
 /* 화면이 좁아질 때(1열): 3번 밑줄은 다시 살리고, 맨 마지막(4번)만 밑줄 지움 */
-@media (max-width: 560px) { 
+/* 기존 560px 대신 768px로 수정 */
+@media (max-width: 768px) { 
+  .g-steps-grid { 
+    grid-template-columns: 1fr !important; /* 무조건 1열로 변경 */
+  }
+
   .g-steps-grid .g-step:nth-child(3) { 
     border-bottom: 1px solid var(--border) !important; 
     margin-bottom: 12px !important; 
