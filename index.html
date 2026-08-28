@@ -514,7 +514,7 @@ const FIXED_LOCATIONS = {
         { id: 'f1-storage', label: '창고',         x: 80,  y: 62 },
     ],
     2: [
-        { id: 'f2-science', label: '과학실 앞', x: 78,  y: 80 },
+        { id: 'f2-science', label: '과학실 앞', x: 90,  y: 80 },
         { id: 'f2-art',     label: '미술실',    x: 52,  y: 68 },
         { id: 'f2-cor',     label: '2층 복도',  x: 38,  y: 45 },
     ],
@@ -533,9 +533,7 @@ const FIXED_LOCATIONS = {
 const REFRESH_INTERVAL_MS = 30000;
 
 /* ============================================================
-    [수정 1] 측정 항목별 고유 색상 팔레트
-    - 핀 색상이 항목마다 달라짐
-    - 값의 크기에 따라 투명도(밝기)로 강약을 표현
+    측정 항목별 고유 색상 팔레트
 ============================================================ */
 const METRICS = {
     lux:  { label: '조도',     unit: 'lux',   color: '#5782b7', pinBase: [87,130,183]  },
