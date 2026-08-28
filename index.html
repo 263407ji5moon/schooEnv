@@ -1540,16 +1540,16 @@ function startPolling() {
 ============================================================ */
 function generateDummyData() {
     const locs  = [
-        { floor: '1', loc: '급식실',       pinId: 'f1-canteen' },
-        { floor: '1', loc: '교무실',       pinId: 'f1-office'  },
-        { floor: '1', loc: '보건실',       pinId: 'f1-nurse'   },
+        //{ floor: '1', loc: '급식실',       pinId: 'f1-canteen' },
+        //{ floor: '1', loc: '교무실',       pinId: 'f1-office'  },
+        //{ floor: '1', loc: '보건실',       pinId: 'f1-nurse'   },
         { floor: '2', loc: '과학실 앞',     pinId: 'f2-science' },
-        { floor: '2', loc: '2층 복도',     pinId: 'f2-cor'     },
-        { floor: '3', loc: '컴퓨터실',     pinId: 'f3-comp'    },
-        { floor: '4', loc: '벼리(도서관)', pinId: 'f4-conf'    },
+        //{ floor: '2', loc: '2층 복도',     pinId: 'f2-cor'     },
+        //{ floor: '3', loc: '컴퓨터실',     pinId: 'f3-comp'    },
+        //{ floor: '4', loc: '벼리(도서관)', pinId: 'f4-conf'    },
     ];
     const ranges = { lux:[200,800], db:[40,90], temp:[18,30], humi:[35,75], dust:[5,80] };
-    const users  = ['김지은','박준호','이서연','최민준','정다은'];
+    const users  = ['한곡이','두곡이','세곡이','내곡이','오곡이'];
     const dummy  = [];
     locs.forEach(l => {
         Object.entries(ranges).forEach(([metric, [min, max]]) => {
